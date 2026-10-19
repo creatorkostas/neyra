@@ -46,6 +46,7 @@ def main():
         "--enable-plugin=pyside6",
         "--include-package=needle",
         "--include-package=neyra",
+        "--include-data-files=neyra/voz_transcribe.mjs=neyra/voz_transcribe.mjs",
         f"--include-data-dir={ASSETS}=assets",
         "--output-dir=dist", f"--output-filename={name}",
         "--assume-yes-for-downloads",

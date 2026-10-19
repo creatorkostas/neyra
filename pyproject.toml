@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "neyra"
 version = "0.1.0"
-description = "Neyra: local floating desktop dictation assistant using PySide6 and Whistle"
+description = "Neyra: local desktop dictation assistant using PySide6, Whistle, or Voz"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "PySide6>=6.6",
@@ -22,6 +22,9 @@ neyra = "neyra.main:main"
 
 [tool.setuptools.packages.find]
 include = ["neyra*"]
+
+[tool.setuptools.package-data]
+neyra = ["*.mjs"]
 
 [project.optional-dependencies]
 build = ["nuitka>=2.6", "ordered-set>=4.1", "zstandard>=0.23"]

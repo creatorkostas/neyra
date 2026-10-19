@@ -1,6 +1,6 @@
 # Neyra — Local Desktop Voice Assistant (MVP)
 
-A frameless, always-on-top PySide6 dictation widget backed by Cactus Whistle. Windows 10/11 and Linux (X11 best supported; Wayland limitations below). English only. Live transcript previews update every three seconds. No LLM, no cloud transcription after model download.
+A frameless, always-on-top PySide6 dictation widget backed by Cactus Whistle by default, with optional Desert Ant Voz transcription. Windows 10/11 and Linux (X11 best supported; Wayland limitations below). Whistle is pinned to English and streams live previews every three seconds. Voz supports 25 languages and produces its transcript after recording stops.
 
 ## Install with uv
 
@@ -11,7 +11,17 @@ uv sync
 uv run python -m neyra.main
 ```
 
-This uses the Python 3.12 version specified in `.python-version`. For a microphone and native-engine smoke test:
+This uses the Python 3.12 version specified in `.python-version`.
+
+To enable the optional Voz engine, install Node.js 20 or newer, then install its runtime packages from the project folder:
+
+```bash
+npm install
+```
+
+In Neyra's **Style** page, choose **Whistle** for live text every three seconds, or **Voz** for a final transcript after recording stops. Voz downloads its model on first use (about 400 MB) and keeps it locally. Neyra reuses the loaded Voz model until the app exits; it uses about 1.2 GB of memory, and its Node runtime runs inference on the CPU. Recorded audio is not sent to a server. Voz's JavaScript API does not currently use Neyra's custom dictionary hints. The current Nuitka build does not bundle Node.js, so Voz in a packaged build requires Node.js and the npm packages to be available alongside the app.
+
+For a microphone and native-engine smoke test:
 
 ```bash
 uv run needle whistle playground
@@ -60,7 +70,7 @@ Global shortcuts work through `pynput` on Windows and X11. They are **not** gene
 neyra/
   main.py     # PySide6 overlay, tray, session lifecycle
   audio.py    # sounddevice microphone, 16 kHz mono float32
-  stt.py      # three-second needle streaming updates on a background thread
+  stt.py      # Whistle streaming and optional Voz transcription on background threads
   hotkeys.py  # hold and toggle chords (Windows/X11)
   desktop.py  # best-effort cross-platform paste
   system_audio.py # default-speaker loopback capture for Notetaker
@@ -68,11 +78,11 @@ neyra/
 pyproject.toml
 ```
 
-The UI previews Whistle's `pending` text but only inserts committed transcription after recording ends. One-second audio blocks are streamed via a queue. All inference is off the GUI thread. **Known MVP limitation:** the microphone-level callback updates a simple Python attribute used by the Qt GUI; a production version should use Qt signals for strict thread-affinity. There is no wake word, text cleanup, silence detection, or automatic timeout. On initial model download, the first recording may take longer to show transcription.
+The UI previews Whistle's `pending` text but only inserts committed transcription after recording ends. Voz returns its transcript after release and does not provide live previews in the JavaScript API. Its model download and transcription progress are reported by the worker. One-second audio blocks are streamed via a queue. All inference is off the GUI thread. **Known MVP limitation:** the microphone-level callback updates a simple Python attribute used by the Qt GUI; a production version should use Qt signals for strict thread-affinity. There is no wake word, silence detection, or automatic timeout.
 
 ## Troubleshooting
 
-- **Model errors:** test `needle whistle playground` first; check internet for first download and package/runtime support.
+- **Model errors:** test `needle whistle playground` for Whistle. For Voz, check Node.js 20+, run `npm install` in the project folder, and allow internet access for its first model download.
 - **No mic:** check OS microphone permissions, default input device, and PortAudio availability.
 - **No shortcuts on Wayland:** expected. Use tray and configure compositor bindings if needed.
 - **Text didn't paste:** use tray → Copy last transcript; verify focus and clipboard tools.
@@ -89,6 +99,6 @@ The UI previews Whistle's `pending` text but only inserts committed transcriptio
 - Product: **Neyra**
 - Python distribution/package and command: `neyra`
 - Executable: `Neyra.exe` on Windows and `Neyra` on Linux
-- Speech engine: Cactus Whistle (English)
+- Speech engines: Cactus Whistle (English, default); Desert Ant Voz (optional, 25 languages)
 
 The project is a renamed prototype, not a validated distributable release. Test native engine availability, keyboard integration and Nuitka packaging on your target machine before distributing.

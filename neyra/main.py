@@ -248,6 +248,17 @@ class HistoryDashboard(QDialog):
         self.style_choice.currentTextChanged.connect(lambda value: self.settings.setValue("style", value))
         style_layout.addWidget(self.style_choice)
         style_layout.addWidget(QLabel("Cleanup is local and rule-based. No cloud rewrite is used."))
+        style_layout.addWidget(QLabel("Transcription engine"))
+        self.engine_choice = QComboBox()
+        self.engine_choice.addItem("Whistle — live text every 3 seconds", "whistle")
+        self.engine_choice.addItem("Voz — final text after release", "voz")
+        saved_engine = self.settings.value("transcription_engine", "whistle")
+        engine_index = self.engine_choice.findData(saved_engine)
+        self.engine_choice.setCurrentIndex(engine_index if engine_index >= 0 else 0)
+        self.engine_choice.currentIndexChanged.connect(
+            lambda _: self.settings.setValue("transcription_engine", self.engine_choice.currentData()))
+        style_layout.addWidget(self.engine_choice)
+        style_layout.addWidget(QLabel("Voz needs Node.js 20+ and downloads its model on first use. Node inference uses the CPU; its loaded model uses about 1.2 GB of memory."))
         style_layout.addStretch()
         self.pages.addWidget(style)
 
@@ -385,6 +396,7 @@ class Assistant:
         self.notetaker_mic = None
         self.system_audio = None
         self.history = HistoryDashboard()
+        self.app.aboutToQuit.connect(self.engine.close)
         self.history.notetaker_start.connect(self.start_notetaker)
         self.history.notetaker_stop.connect(self.stop_notetaker)
         self.tray = QSystemTrayIcon(self.app.style().standardIcon(self.app.style().StandardPixmap.SP_MediaVolume), app)
@@ -395,6 +407,7 @@ class Assistant:
             menu.addAction(item)
         self.tray.setContextMenu(menu)
         self.tray.setToolTip("Neyra")
+        self.tray.activated.connect(self.tray_activated)
         self.tray.show()
         self.hotkeys = None
         if not is_wayland():
@@ -422,7 +435,7 @@ class Assistant:
             self.recorder.start()
             self.recording = True
             hints = self.history.dictionary_words() + list(self.history.snippets())
-            self.engine.run(chunks, keywords=hints)
+            self.engine.run(chunks, keywords=hints, model=self.history.engine_choice.currentData())
         except Exception as exc:
             self.recording = False
             self.overlay.state = "Error"
@@ -522,7 +535,7 @@ class Assistant:
             self.active_mode = "notetaker"
             self.history.notetaker_status.setText("Transcribing meeting audio...")
             hints = self.history.dictionary_words() + list(self.history.snippets())
-            self.engine.run(chunks, keywords=hints)
+            self.engine.run(chunks, keywords=hints, model=self.history.engine_choice.currentData())
         except Exception as exc:
             self.processing = False
             self.active_mode = "dictation"
@@ -544,8 +557,13 @@ class Assistant:
         self.history.raise_()
         self.history.activateWindow()
 
+    def tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self.show_history()
+
     def quit(self):
         if self.recording: self.stop()
+        self.engine.close()
         if self.hotkeys: self.hotkeys.stop()
         self.tray.hide()
         self.app.quit()
