@@ -1,0 +1,94 @@
+# Neyra — Local Desktop Voice Assistant (MVP)
+
+A frameless, always-on-top PySide6 dictation widget backed by Cactus Whistle. Windows 10/11 and Linux (X11 best supported; Wayland limitations below). English only. Live transcript previews update every three seconds. No LLM, no cloud transcription after model download.
+
+## Install with uv
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and use a 64-bit Windows or Linux system.
+
+```bash
+uv sync
+uv run python -m neyra.main
+```
+
+This uses the Python 3.12 version specified in `.python-version`. For a microphone and native-engine smoke test:
+
+```bash
+uv run needle whistle playground
+```
+
+## Build with Nuitka (offline model included)
+
+```bash
+uv sync --extra build
+uv run python scripts/build.py --onefile
+```
+
+The build script runs `needle download whistle --out assets/model` and `needle fetch --out assets/engine`, verifies that it can find the model and a native engine library, and includes both in Nuitka's onefile distribution. It sets `NEEDLE_WHISTLE_WEIGHTS`, `NEEDLE3_LIB_PATH`, and `HF_HUB_OFFLINE=1` at application startup. A packaged executable should not download weights at runtime.
+
+For easier debugging first build a folder distribution:
+
+```bash
+uv run python scripts/build.py --standalone
+```
+
+Build on Windows to produce `dist/Neyra.exe`; build on Linux to produce `dist/Neyra`. Nuitka does not cross-compile. The executable is self-extracting, not a fully static binary; Linux still needs compatible system libraries and a display server.
+
+**Packaging caveat:** Cactus's fetched engine layout may change, and some distributions may contain multiple libraries. The build deliberately fails instead of silently falling back to online downloads. If `NEEDLE3_LIB_PATH` is ignored by a future Cactus release or native dependencies are missing, verify against that release and adjust the packaging. This build is not end-to-end tested on Windows or Linux here.
+
+## Controls
+
+- **Hold** `Ctrl+Win` to record; release either key to finish. The overlay hides on release, and the transcript is copied to the clipboard when transcription completes.
+- **Toggle** `Ctrl+Shift+Space` to start/stop recording.
+- The dashboard includes local Insights, a recognition dictionary, spoken snippets, output styles, and a Notetaker that captures the microphone and default speaker audio.
+- Notetaker summaries and follow-up suggestions use local sentence extraction rules; the mixed recording is not speaker-labeled.
+- System tray right-click → Toggle recording / Copy last transcript / Show overlay / Quit.
+- Drag the widget by holding the left mouse button.
+
+Global shortcuts work through `pynput` on Windows and X11. They are **not** generally supported by pynput on native Wayland. For Wayland, use the tray menu or set up compositor-specific bindings / a desktop portal integration in a later iteration. Tray visibility also depends on the desktop environment.
+
+## Text insertion
+
+- The transcript is copied to the clipboard and automatically pasted into the focused application when recording finishes.
+- On Wayland, `wl-copy` + `wtype` are attempted if installed and allowed by the compositor. Otherwise use **Copy last transcript** in the tray.
+- The overlay is non-focusable to preserve the target text field, but paste delivery is best-effort. Some elevated apps, secure inputs, games and Wayland sessions block it. The clipboard is intentionally **not restored** because restoring it too early can race with the target application.
+- Avoid dictating sensitive information into the wrong focused field. The MVP does not inspect or filter password fields.
+
+## Architecture
+
+```
+neyra/
+  main.py     # PySide6 overlay, tray, session lifecycle
+  audio.py    # sounddevice microphone, 16 kHz mono float32
+  stt.py      # three-second needle streaming updates on a background thread
+  hotkeys.py  # hold and toggle chords (Windows/X11)
+  desktop.py  # best-effort cross-platform paste
+  system_audio.py # default-speaker loopback capture for Notetaker
+  text_tools.py # local speech cleanup and snippet expansion
+pyproject.toml
+```
+
+The UI previews Whistle's `pending` text but only inserts committed transcription after recording ends. One-second audio blocks are streamed via a queue. All inference is off the GUI thread. **Known MVP limitation:** the microphone-level callback updates a simple Python attribute used by the Qt GUI; a production version should use Qt signals for strict thread-affinity. There is no wake word, text cleanup, silence detection, or automatic timeout. On initial model download, the first recording may take longer to show transcription.
+
+## Troubleshooting
+
+- **Model errors:** test `needle whistle playground` first; check internet for first download and package/runtime support.
+- **No mic:** check OS microphone permissions, default input device, and PortAudio availability.
+- **No shortcuts on Wayland:** expected. Use tray and configure compositor bindings if needed.
+- **Text didn't paste:** use tray → Copy last transcript; verify focus and clipboard tools.
+- **No tray:** some Linux desktops need AppIndicator/tray support; window stays visible.
+
+## References
+
+- https://www.cactuscompute.com/blog/whistle
+- https://www.cactuscompute.com/blog/whistle-best-practices
+- https://github.com/cactus-compute/needle/blob/main/llms.txt
+
+## Product naming
+
+- Product: **Neyra**
+- Python distribution/package and command: `neyra`
+- Executable: `Neyra.exe` on Windows and `Neyra` on Linux
+- Speech engine: Cactus Whistle (English)
+
+The project is a renamed prototype, not a validated distributable release. Test native engine availability, keyboard integration and Nuitka packaging on your target machine before distributing.
