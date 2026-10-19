@@ -10,16 +10,17 @@ class Hotkeys(QObject):
     def __init__(self):
         super().__init__()
         self.pressed = set()
+        self._keys = set()
         self.holding = False
         self.toggle_latched = False
         self.listener = None
 
     @staticmethod
     def normalize(key):
-        if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r): return "ctrl"
-        if key in (keyboard.Key.cmd_l, keyboard.Key.cmd_r): return "win"
-        if key in (keyboard.Key.shift_l, keyboard.Key.shift_r): return "shift"
-        if key in (keyboard.Key.alt_l, keyboard.Key.alt_r): return "alt"
+        if key in (keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r): return "ctrl"
+        if key in (keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.cmd_r): return "win"
+        if key in (keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r): return "shift"
+        if key in (keyboard.Key.alt, keyboard.Key.alt_l, keyboard.Key.alt_r): return "alt"
         if key == keyboard.Key.space: return "space"
         return None
 
@@ -27,8 +28,9 @@ class Hotkeys(QObject):
         def down(key):
             name = self.normalize(key)
             if name is None: return
-            if name in self.pressed: return
-            self.pressed.add(name)
+            if key in self._keys: return
+            self._keys.add(key)
+            self.pressed = {self.normalize(value) for value in self._keys}
             if {"ctrl", "win"}.issubset(self.pressed) and not self.holding:
                 self.holding = True
                 self.hold_start.emit()
@@ -38,7 +40,8 @@ class Hotkeys(QObject):
         def up(key):
             name = self.normalize(key)
             if name is None: return
-            self.pressed.discard(name)
+            self._keys.discard(key)
+            self.pressed = {self.normalize(value) for value in self._keys}
             if self.holding and not {"ctrl", "win"}.issubset(self.pressed):
                 self.holding = False
                 self.hold_stop.emit()
@@ -48,4 +51,12 @@ class Hotkeys(QObject):
         self.listener.start()
 
     def stop(self):
-        if self.listener: self.listener.stop()
+        if self.listener:
+            self.listener.stop()
+        self.pressed = set()
+        self._keys.clear()
+        self.holding = False
+        self.toggle_latched = False
+
+    def modifiers_active(self):
+        return bool(self.pressed & {"ctrl", "win", "shift", "alt"})

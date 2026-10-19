@@ -15,7 +15,9 @@ class SystemAudioRecorder:
 
     def start(self):
         speaker = sc.default_speaker()
-        loopback = sc.get_microphone(speaker.name, include_loopback=True)
+        if speaker is None:
+            raise RuntimeError("No default speaker is available for meeting capture")
+        loopback = sc.get_microphone(speaker.id, include_loopback=True)
         if not loopback.isloopback:
             raise RuntimeError("Could not open loopback capture for the default speaker")
 

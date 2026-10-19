@@ -18,16 +18,22 @@ def apply_style(text, style):
     if style == "Clean up speech":
         return clean_text(text)
     if style == "Formal":
-        return clean_text(text).replace("don't", "do not").replace("can't", "cannot")
+        expanded = re.sub(r"\b(don't|can't)\b",
+                          lambda match: {"don't": "do not", "can't": "cannot"}[match.group().lower()],
+                          text, flags=re.IGNORECASE)
+        return clean_text(expanded)
     return text.strip()
 
 
 def expand_snippets(text, snippets):
-    for trigger, replacement in sorted(snippets.items(), key=lambda pair: len(pair[0]), reverse=True):
-        if trigger.strip():
-            text = re.sub(rf"(?<!\w){re.escape(trigger.strip())}(?!\w)", lambda _: replacement,
-                          text, flags=re.IGNORECASE)
-    return text
+    entries = sorted(((trigger.strip(), replacement) for trigger, replacement in snippets.items() if trigger.strip()),
+                     key=lambda entry: len(entry[0]), reverse=True)
+    if not entries:
+        return text
+    triggers = "|".join(f"({re.escape(trigger)})" for trigger, _ in entries)
+    # One substitution pass prevents replacement text from triggering another snippet.
+    return re.sub(rf"(?<!\w)(?:{triggers})(?!\w)",
+                  lambda match: entries[match.lastindex - 1][1], text, flags=re.IGNORECASE)
 
 
 def meeting_brief(text):

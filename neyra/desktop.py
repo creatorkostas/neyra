@@ -1,7 +1,5 @@
 """Best-effort text insertion into the previously focused application."""
 import os
-import sys
-import time
 import shutil
 import subprocess
 import pyperclip
@@ -22,16 +20,9 @@ def insert_text(text):
         subprocess.run(["wl-copy"], input=text, text=True, check=True)
         subprocess.run(["wtype", "-M", "ctrl", "v", "-m", "ctrl"], check=True)
         return "Pasted via Wayland tools (clipboard now contains transcription)"
-    old = None
-    try:
-        old = pyperclip.paste()
-    except Exception:
-        pass
     pyperclip.copy(text)
     kb = Controller()
     with kb.pressed(Key.ctrl):
         kb.press("v")
         kb.release("v")
-    # Delayed restore to let the target app consume the paste.
-    # The delay cannot guarantee safety for every target; no restore by default.
     return "Pasted (clipboard now contains transcription)"

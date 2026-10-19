@@ -19,7 +19,7 @@ To enable the optional Voz engine, install Node.js 20 or newer, then install its
 npm install
 ```
 
-In Neyra's **Style** page, choose **Whistle** for live text every three seconds, or **Voz** for a final transcript after recording stops. Voz downloads its model on first use (about 400 MB) and keeps it locally. Neyra reuses the loaded Voz model until the app exits; it uses about 1.2 GB of memory, and its Node runtime runs inference on the CPU. Recorded audio is not sent to a server. Voz's JavaScript API does not currently use Neyra's custom dictionary hints. The current Nuitka build does not bundle Node.js, so Voz in a packaged build requires Node.js and the npm packages to be available alongside the app.
+In Neyra's **Style** page, choose **Whistle** for live text every three seconds, or **Voz** for a final transcript after recording stops. Voz downloads its model on first use (about 400 MB) and keeps it locally. Neyra reuses the loaded Voz model until the app exits; it uses about 1.2 GB of memory, and its Node runtime runs inference on the CPU with at most four inference threads. The dashboard shows model download progress in MB, and stalled downloads or engine failures can be retried. Recorded audio is not sent to a server. Voz's JavaScript API does not currently use Neyra's custom dictionary hints. The current Nuitka build does not bundle Node.js, so Voz in a packaged build requires Node.js and the npm packages to be available alongside the app.
 
 For a microphone and native-engine smoke test:
 
@@ -52,6 +52,7 @@ Build on Windows to produce `dist/Neyra.exe`; build on Linux to produce `dist/Ne
 - **Toggle** `Ctrl+Shift+Space` to start/stop recording.
 - The dashboard includes local Insights, a recognition dictionary, spoken snippets, output styles, and a Notetaker that captures the microphone and default speaker audio.
 - Notetaker summaries and follow-up suggestions use local sentence extraction rules; the mixed recording is not speaker-labeled.
+- Double-click the system tray icon to open the dashboard. Search, copy, or delete transcripts in the dated history feed.
 - System tray right-click → Toggle recording / Copy last transcript / Show overlay / Quit.
 - Drag the widget by holding the left mouse button.
 
@@ -78,7 +79,15 @@ neyra/
 pyproject.toml
 ```
 
-The UI previews Whistle's `pending` text but only inserts committed transcription after recording ends. Voz returns its transcript after release and does not provide live previews in the JavaScript API. Its model download and transcription progress are reported by the worker. One-second audio blocks are streamed via a queue. All inference is off the GUI thread. **Known MVP limitation:** the microphone-level callback updates a simple Python attribute used by the Qt GUI; a production version should use Qt signals for strict thread-affinity. There is no wake word, silence detection, or automatic timeout.
+The UI previews Whistle's `pending` text but only inserts committed transcription after recording ends. Voz returns its transcript after release and does not provide live previews in the JavaScript API. Its model download and transcription progress are reported by the worker. One-second audio blocks are streamed via a queue. All inference is off the GUI thread. Worker results and microphone levels reach the GUI through Qt signals. Audio streams are closed on failure and shutdown. Auto-paste waits for the shortcut modifiers to be released. There is no wake word, silence detection, or automatic timeout.
+
+## Regression checks
+
+```bash
+uv run python -m unittest discover -s tests -v
+```
+
+These checks use isolated settings and simulated audio devices. They cover recording cleanup, shortcut reuse, output formatting, history retention, and the Voz subprocess protocol. They do not capture the microphone or system audio.
 
 ## Troubleshooting
 
