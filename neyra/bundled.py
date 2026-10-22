@@ -1,5 +1,6 @@
 """Resolve bundled Cactus model and engine, with no network fallback in frozen builds."""
 import os
+import sys
 from pathlib import Path
 
 
@@ -7,6 +8,8 @@ def configure_bundled_runtime():
     root = Path(__file__).resolve().parent.parent
     assets = root / "assets"
     if not assets.is_dir():
+        return
+    if not getattr(sys, "frozen", False) and not (assets / "model").is_dir() and not (assets / "engine").is_dir():
         return
     weights = list((assets / "model").rglob("whistle.cact"))
     if len(weights) != 1:

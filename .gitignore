@@ -10,3 +10,5 @@ dist/
 *.build/
 *.dist/
 *.onefile-build/
+output/
+*.egg-info/

@@ -12,7 +12,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 import numpy as np
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel, QFrame, QTabWidget
 from neyra.audio import Microphone
 from neyra.hotkeys import Hotkeys
 from neyra.main import Assistant, HistoryDashboard, load_records
@@ -28,7 +28,7 @@ QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, SETTING
 
 class RegressionTests(unittest.TestCase):
     def setUp(self):
-        QSettings("Neyra", "Neyra").clear()
+        QSettings(QSettings.Format.IniFormat, QSettings.Scope.UserScope, "Neyra", "Neyra").clear()
 
     def make_assistant(self):
         with patch("neyra.hotkeys.Hotkeys.start"), patch("neyra.main.QSystemTrayIcon.show"):
@@ -79,7 +79,7 @@ class RegressionTests(unittest.TestCase):
             self.assertFalse(hotkeys.modifiers_active())
 
     def test_corrupt_settings_do_not_crash_dashboard(self):
-        settings = QSettings("Neyra", "Neyra")
+        settings = QSettings(QSettings.Format.IniFormat, QSettings.Scope.UserScope, "Neyra", "Neyra")
         settings.setValue("history", json.dumps([{"text": "bad date", "time": "no"}, None, {"text": "valid", "time": "2026-10-19T10:00:00"}]))
         settings.setValue("meetings", "{broken")
         settings.setValue("dictionary", '[1, "Neyra"]')
@@ -109,6 +109,93 @@ class RegressionTests(unittest.TestCase):
         record = dashboard.records[-1]
         dashboard.delete_transcript(record)
         self.assertEqual(len(load_records(dashboard.settings, "history")), 499)
+
+    def test_notetaker_controls_follow_recording_state(self):
+        dashboard = HistoryDashboard()
+        self.addCleanup(dashboard.close)
+        started, stopped = [], []
+        dashboard.notetaker_start.connect(lambda: started.append(True))
+        dashboard.notetaker_stop.connect(lambda: stopped.append(True))
+        dashboard.notetaker.start_button.click()
+        self.assertEqual(len(started), 1)
+        dashboard.set_meeting_state("recording", "Recording")
+        self.assertTrue(dashboard.notetaker.timer.isActive())
+        self.assertEqual(dashboard.notetaker.start_button.text(), "Stop and transcribe")
+        dashboard.notetaker.start_button.click()
+        self.assertEqual(len(stopped), 1)
+        dashboard.set_meeting_state("transcribing", "Working")
+        self.assertFalse(dashboard.notetaker.start_button.isEnabled())
+        self.assertFalse(dashboard.notetaker.timer.isActive())
+        dashboard.set_meeting_state("idle", "Saved")
+        self.assertTrue(dashboard.notetaker.start_button.isEnabled())
+
+    def test_meeting_cards_search_delete_and_intro_persist(self):
+        dashboard = HistoryDashboard()
+        self.addCleanup(dashboard.close)
+        dashboard.add_meeting("We need to finish the design review.")
+        dashboard.add_meeting("Tomorrow we will discuss the budget.")
+        dashboard.notetaker.search.setText("design")
+        labels = [label.text() for label in dashboard.notetaker.feed.widget().findChildren(QLabel)]
+        self.assertTrue(any("design" in text for text in labels))
+        self.assertFalse(any("budget" in text for text in labels))
+        dashboard.delete_meeting(dashboard.meeting_records[0])
+        self.assertEqual(len(load_records(dashboard.settings, "meetings")), 1)
+        dashboard.notetaker.dismiss_intro()
+        reopened = HistoryDashboard()
+        self.addCleanup(reopened.close)
+        self.assertTrue(reopened.notetaker.intro.isHidden())
+        self.assertEqual(len(reopened.meeting_records), 1)
+
+    def test_window_content_has_outer_inset(self):
+        dashboard = HistoryDashboard()
+        self.addCleanup(dashboard.close)
+        dashboard.show()
+        APP.processEvents()
+        surface = dashboard.findChild(QFrame, "surface")
+        self.assertLess(surface.geometry().right(), dashboard.rect().right())
+        self.assertLess(surface.geometry().bottom(), dashboard.rect().bottom())
+
+    def test_meeting_recording_updates_controls_and_saves_notes(self):
+        assistant = self.make_assistant()
+        assistant.engine.run = Mock()
+        mic = Mock()
+        system = Mock()
+        system.stop.return_value = np.zeros(160, dtype=np.float32)
+        def make_mic(chunks, level):
+            mic.start.side_effect = lambda: chunks.put(np.ones(160, dtype=np.float32))
+            mic.stop.side_effect = lambda: chunks.put(None)
+            return mic
+        with patch("neyra.main.bridge_path"), patch("neyra.main.Microphone", side_effect=make_mic), patch("neyra.main.SystemAudioRecorder", return_value=system):
+            assistant.history.notetaker.start_button.click()
+            self.assertTrue(assistant.notetaker_active)
+            self.assertEqual(assistant.history.notetaker.state, "recording")
+            assistant.history.notetaker.start_button.click()
+            self.assertFalse(assistant.notetaker_active)
+            self.assertEqual(assistant.history.notetaker.state, "transcribing")
+            assistant.engine.run.assert_called_once()
+            self.assertEqual(assistant.engine.run.call_args.kwargs["model"], "voz")
+            self.assertIn("meeting_options", assistant.engine.run.call_args.kwargs)
+            chunks = assistant.engine.run.call_args.args[0]
+            np.testing.assert_allclose(chunks.get_nowait(), 0.5)
+            self.assertIsNone(chunks.get_nowait())
+            assistant.complete("We need to review the design.")
+            self.assertEqual(assistant.history.notetaker.state, "idle")
+            self.assertEqual(len(assistant.history.meeting_records), 1)
+            self.assertEqual(assistant.active_mode, "dictation")
+
+    def test_meeting_viewer_contains_summary_actions_and_plain_transcript(self):
+        dashboard = HistoryDashboard()
+        self.addCleanup(dashboard.close)
+        transcript = "We need to review <draft> tomorrow. The plan is ready."
+        dashboard.add_meeting(transcript)
+        def inspect(dialog):
+            tabs = dialog.findChild(QTabWidget)
+            self.assertEqual(tabs.count(), 3)
+            self.assertEqual(tabs.widget(2).toPlainText(), transcript)
+            self.assertIn("need to", tabs.widget(1).toPlainText())
+            return 0
+        with patch("neyra.ui.QDialog.exec", new=inspect):
+            dashboard.notetaker.open_meeting(dashboard.meeting_records[0])
 
     def test_meeting_cleanup_attempts_both_recorders_after_error(self):
         assistant = self.make_assistant()

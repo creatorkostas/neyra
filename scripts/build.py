@@ -13,15 +13,18 @@ def run(*args):
     print("+", " ".join(map(str, args)), flush=True)
     subprocess.run([str(a) for a in args], cwd=ROOT, check=True)
 
+def needle(*args):
+    run(sys.executable, "-c", "from needle.cli import main; main()", *args)
+
 def prepare_assets():
     model = ASSETS / "model"
     engine = ASSETS / "engine"
     model.mkdir(parents=True, exist_ok=True)
     engine.mkdir(parents=True, exist_ok=True)
     if not list(model.rglob("whistle.cact")):
-        run(sys.executable, "-m", "needle", "download", "whistle", "--out", model)
+        needle("download", "whistle", "--out", model)
     if not any(x.is_file() and ("needle" in x.name.lower()) and x.suffix.lower() in (".so", ".dll", ".dylib") for x in engine.rglob("*")):
-        run(sys.executable, "-m", "needle", "fetch", "--out", engine)
+        needle("fetch", "--out", engine)
     from neyra.bundled import configure_bundled_runtime
     configure_bundled_runtime()
     print("Bundled engine:", os.environ["NEEDLE3_LIB_PATH"])
@@ -46,11 +49,16 @@ def main():
         "--enable-plugin=pyside6",
         "--include-package=needle",
         "--include-package=neyra",
+        "--include-package-data=soundcard",
         "--include-data-files=neyra/voz_transcribe.mjs=neyra/voz_transcribe.mjs",
-        f"--include-data-dir={ASSETS}=assets",
         "--output-dir=dist", f"--output-filename={name}",
         "--assume-yes-for-downloads",
     ]
+    # Toolchain installers under assets/tools are development files, not app data.
+    for folder in ("model", "engine", "meeting-models"):
+        if (ASSETS / folder).is_dir():
+            option = "--include-data-dir" if folder == "model" else "--include-raw-dir"
+            command.append(f"{option}={ASSETS / folder}=assets/{folder}")
     if is_win:
         command.append("--windows-console-mode=disable")
     command.append(str(ROOT / "run_neyra.py"))

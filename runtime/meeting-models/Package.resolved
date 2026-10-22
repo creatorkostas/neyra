@@ -1,0 +1,31 @@
+{
+  "originHash" : "539ae62f7b98e01dee2fd1f69c69953ef05a21328599814068ee1e7c81a28372",
+  "pins" : [
+    {
+      "identity" : "connxruntime",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Desert-Ant-Labs/COnnxRuntime.git",
+      "state" : {
+        "revision" : "8bcd6d134e996ef457bd1180407e2fed3061dd82"
+      }
+    },
+    {
+      "identity" : "desert-ant-core",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Desert-Ant-Labs/desert-ant-core.git",
+      "state" : {
+        "revision" : "9ac125cc4b10696a7ae1d18723fb585b8c025ee1"
+      }
+    },
+    {
+      "identity" : "swift-numerics",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-numerics",
+      "state" : {
+        "revision" : "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+        "version" : "1.1.1"
+      }
+    }
+  ],
+  "version" : 3
+}

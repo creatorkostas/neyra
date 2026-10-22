@@ -7,13 +7,14 @@ import numpy as np
 from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, QPoint, Signal, QSize, QSettings, QObject, Slot
 from PySide6.QtGui import QColor, QPainter, QPen, QAction
-from PySide6.QtWidgets import QApplication, QWidget, QSystemTrayIcon, QMenu, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QFrame, QStackedWidget, QLineEdit, QTextEdit, QComboBox, QTableWidget, QTableWidgetItem, QProgressBar, QMessageBox, QAbstractItemView
+from PySide6.QtWidgets import QApplication, QWidget, QSystemTrayIcon, QMenu, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QPushButton, QFrame, QStackedWidget, QLineEdit, QTableWidget, QTableWidgetItem, QProgressBar, QMessageBox, QAbstractItemView
 from .audio import Microphone
 from .stt import Transcriber
 from .desktop import insert_text, is_wayland
-from .text_tools import apply_style, expand_snippets, meeting_brief
+from .text_tools import apply_style, expand_snippets
 from .system_audio import SystemAudioRecorder
-from .ui import THEME, TranscriptFeed, DashboardComboBox, icon, icon_button
+from .ui import THEME, TranscriptFeed, DashboardComboBox, NotetakerPanel, icon, icon_button
+from .meeting import bridge_path, validated_words
 
 
 def load_setting(settings, key, expected, default):
@@ -31,6 +32,19 @@ def load_records(settings, key):
             if not isinstance(record, dict) or not isinstance(record.get("text"), str):
                 continue
             datetime.fromisoformat(record["time"])
+            if key == "meetings":
+                record = dict(record)
+                record["title"] = record.get("title") if isinstance(record.get("title"), str) else ""
+                record["topics"] = [topic for topic in record.get("topics", []) if isinstance(topic, dict) and isinstance(topic.get("name"), str) and isinstance(topic.get("slug"), str)] if isinstance(record.get("topics"), list) else []
+                if "words" in record:
+                    try:
+                        words = validated_words(record["words"], 10_000_000)
+                        for clean, original in zip(words, record["words"]):
+                            clean["speakers"] = [speaker for speaker in original.get("speakers", []) if isinstance(speaker, int) and not isinstance(speaker, bool) and speaker >= 0] if isinstance(original.get("speakers"), list) else []
+                        record["words"] = words
+                    except (TypeError, ValueError):
+                        record["words"] = []
+                record["warnings"] = [message for message in record.get("warnings", []) if isinstance(message, str)] if isinstance(record.get("warnings"), list) else []
             records.append(record)
         except (TypeError, ValueError, KeyError):
             continue
@@ -104,21 +118,23 @@ class HistoryDashboard(QDialog):
 
     def __init__(self):
         super().__init__()
+        self.setObjectName("dashboard")
         self.setWindowTitle("Neyra")
         self.setWindowIcon(icon("wave"))
         self.resize(1340, 840)
         self.setMinimumSize(1000, 640)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setSizeGripEnabled(True)
-        self.settings = QSettings("Neyra", "Neyra")
+        self.settings = QSettings(QSettings.defaultFormat(), QSettings.Scope.UserScope, "Neyra", "Neyra")
         self.records = load_records(self.settings, "history")[-500:]
         self.setStyleSheet(THEME)
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 6)
+        root.setContentsMargins(0, 0, 9, 9)
         root.setSpacing(0)
         bar = QWidget()
         bar.setObjectName("windowBar")
-        bar.setFixedHeight(38)
+        bar.setFixedHeight(44)
         bar_layout = QHBoxLayout(bar)
         bar_layout.setContentsMargins(14, 2, 8, 2)
         sidebar_toggle = icon_button("sidebar", "Toggle sidebar")
@@ -274,29 +290,22 @@ class HistoryDashboard(QDialog):
         self.pages.addWidget(dictation)
 
         # Meeting notes
-        notetaker = QWidget()
-        note_layout = QVBoxLayout(notetaker)
-        note_layout.addWidget(QLabel("Capture a meeting and keep its transcript with your dictations."))
-        note_layout.addWidget(QLabel("Audio is mixed from the microphone and default speaker output; individual speakers are not identified."))
-        self.notetaker_status = QLabel("Ready to record microphone and computer audio.")
-        note_layout.addWidget(self.notetaker_status)
-        controls = QHBoxLayout()
-        start_note = QPushButton("Start meeting recording")
-        stop_note = QPushButton("Stop and transcribe")
-        start_note.clicked.connect(self.notetaker_start.emit)
-        stop_note.clicked.connect(self.notetaker_stop.emit)
-        controls.addWidget(start_note)
-        controls.addWidget(stop_note)
-        controls.addStretch()
-        note_layout.addLayout(controls)
-        self.notes_text = QListWidget()
-        self.notes_text.setWordWrap(True)
-        self.notes_text.itemDoubleClicked.connect(lambda item: QApplication.clipboard().setText(item.data(Qt.ItemDataRole.UserRole)))
         self.meeting_records = load_records(self.settings, "meetings")[-100:]
-        for record in self.meeting_records:
-            self._add_meeting_row(record)
-        note_layout.addWidget(self.notes_text, 1)
-        self.pages.addWidget(notetaker)
+        show_intro = not self.settings.value("notetaker_intro_dismissed", False, type=bool)
+        self.notetaker = NotetakerPanel(self.meeting_records, show_intro=show_intro)
+        for toggle, key, default in ((self.notetaker.speaker_toggle, "speakers", False), (self.notetaker.cleanup_toggle, "cleanup", False), (self.notetaker.organize_toggle, "organize", True)):
+            toggle.setChecked(self.settings.value(f"meeting_{key}", default, type=bool))
+        language_index = self.notetaker.language_choice.findData(self.settings.value("meeting_language", "en"))
+        self.notetaker.language_choice.setCurrentIndex(max(0, language_index))
+        self.notetaker.options_changed.connect(self.save_meeting_options)
+        self.notetaker.record_updated.connect(self.save_meetings)
+        self.notetaker.start_requested.connect(self.notetaker_start.emit)
+        self.notetaker.stop_requested.connect(self.notetaker_stop.emit)
+        self.notetaker.settings_requested.connect(lambda: self.show_page(5))
+        self.notetaker.delete_requested.connect(self.delete_meeting)
+        self.notetaker.intro_dismissed.connect(lambda: self.settings.setValue("notetaker_intro_dismissed", True))
+        self.notetaker_status = self.notetaker.status
+        self.pages.addWidget(self.notetaker)
 
         # Usage insights
         insights = QWidget()
@@ -392,6 +401,7 @@ class HistoryDashboard(QDialog):
 
     def show_page(self, index):
         self.pages.setCurrentIndex(index)
+        self.heading.setVisible(index != 1)
         self.heading.setText(("Welcome back", "Notetaker", "Insights", "Dictionary", "Snippets", "Style & settings")[index])
         for i, button in enumerate(self.nav_buttons):
             button.setChecked(i == index)
@@ -436,24 +446,37 @@ class HistoryDashboard(QDialog):
         self.items.refresh(self.records)
         self.update_stats()
 
-    def add_meeting(self, text):
-        record = {"text": text, "time": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    def save_meeting_options(self):
+        for key, value in self.notetaker.processing_options().items():
+            self.settings.setValue(f"meeting_{key}", value)
+
+    def save_meetings(self):
+        self.settings.setValue("meetings", json.dumps(self.meeting_records))
+
+    def add_meeting(self, text, metadata=None):
+        record = dict(metadata or {})
+        record.update(text=text, time=datetime.now().isoformat(timespec="seconds"))
         self.meeting_records.append(record)
         self.meeting_records = self.meeting_records[-100:]
         self.settings.setValue("meetings", json.dumps(self.meeting_records))
-        self._add_meeting_row(record)
+        self.notetaker.records = self.meeting_records
+        self.notetaker.refresh()
 
-    def _add_meeting_row(self, record):
-        text = record["text"]
-        summary, actions = meeting_brief(text)
-        followups = "\n".join(f"• {action}" for action in actions) if actions else "No follow-up phrases detected."
-        item = QListWidgetItem(f"Meeting - {record['time']}\nSummary: {summary}\nNext steps: {followups}")
-        item.setToolTip(text)
-        item.setData(Qt.ItemDataRole.UserRole, text)
-        item.setSizeHint(QSize(0, max(100, 45 + len(item.text()) // 65 * 20)))
-        self.notes_text.insertItem(0, item)
-        while self.notes_text.count() > 100:
-            self.notes_text.takeItem(100)
+    def delete_meeting(self, record):
+        self.meeting_records.remove(record)
+        self.settings.setValue("meetings", json.dumps(self.meeting_records))
+        self.notetaker.refresh()
+
+    def set_meeting_state(self, state, message=None):
+        self.notetaker.set_state(state, message)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor("#e8e5de"), 1))
+        painter.setBrush(QColor("#f6f5f2"))
+        radius = 0 if self.isMaximized() else 10
+        painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), radius, radius)
 
     def update_stats(self):
         total_words = sum(len(record["text"].split()) for record in self.records)
@@ -557,10 +580,14 @@ class Assistant(QObject):
         self.last_text = ""
         self.notetaker_mic = None
         self.system_audio = None
+        self._meeting_audio = None
+        self._meeting_capture_warnings = []
         self.history = HistoryDashboard()
         self.app.aboutToQuit.connect(self.cleanup)
         self.history.notetaker_start.connect(self.start_notetaker)
         self.history.notetaker_stop.connect(self.stop_notetaker)
+        self.history.notetaker.retry_requested.connect(self.process_meeting)
+        self.history.notetaker.discard_requested.connect(self.discard_meeting)
         self.tray = QSystemTrayIcon(icon("wave"), app)
         menu = QMenu()
         for title, action in [("Toggle recording", self.toggle), ("Transcription history", self.show_history), ("Copy last transcript", self.copy_last), ("Show overlay", self.overlay.show), ("Quit", self.quit)]:
@@ -571,6 +598,7 @@ class Assistant(QObject):
         self.tray.setToolTip("Neyra")
         self.tray.activated.connect(self.tray_activated)
         self.tray.show()
+        self.history.engine_choice.currentIndexChanged.connect(self.prepare_selected_engine)
         self.hotkeys = None
         if not is_wayland():
             try:
@@ -584,6 +612,11 @@ class Assistant(QObject):
                 self.overlay.text = f"Hotkeys unavailable: {exc}. Use tray menu."
         else:
             self.overlay.text = "Wayland: use tray menu; compositor shortcuts can be configured externally"
+        self.prepare_selected_engine()
+
+    def prepare_selected_engine(self, *_):
+        if self.history.engine_choice.currentData() == "whistle":
+            self.engine.prepare_whistle()
 
     @Slot(float)
     def set_level(self, value):
@@ -650,12 +683,18 @@ class Assistant(QObject):
             return
         self.processing = False
         self.history.status_label.setText("Ready to dictate" if text else "No speech detected")
-        text = expand_snippets(apply_style(text, self.history.style_choice.currentText()), self.history.snippets())
         if self.active_mode == "notetaker":
-            self.history.add_meeting(text or "No speech detected.")
-            self.history.notetaker_status.setText("Meeting transcript saved." if text else "No speech detected.")
+            metadata = dict(self.engine.meeting_result or {})
+            metadata["warnings"] = [*metadata.get("warnings", []), *self._meeting_capture_warnings]
+            self.history.add_meeting(text or "No speech detected.", metadata)
+            warnings = metadata.get("warnings", []) if metadata else []
+            self.history.set_meeting_state("idle", "Meeting saved. " + " ".join(warnings) if warnings else "Meeting transcript saved." if text else "No speech detected.")
+            self._meeting_audio = None
+            self._meeting_capture_warnings = []
+            self.history.notetaker.set_recovery(False)
             self.active_mode = "dictation"
             return
+        text = expand_snippets(apply_style(text, self.history.style_choice.currentText()), self.history.snippets())
         self.last_text = text
         self.overlay.state = "Ready"
         self.overlay.text = text or "No speech detected"
@@ -678,19 +717,50 @@ class Assistant(QObject):
                 self.error(f"Transcript copied, but paste failed: {exc}")
 
     def start_notetaker(self):
-        if self.closing or self.notetaker_active or self.recording or self.processing:
+        if self.closing or self.notetaker_active or self.recording or self.processing or self._meeting_audio is not None:
             return
         try:
+            bridge_path()
+            self.meeting_options = self.history.notetaker.processing_options()
+            self._meeting_capture_warnings = []
             self.notetaker_chunks = queue.Queue()
             self.notetaker_mic = Microphone(self.notetaker_chunks, lambda value: None)
             self.system_audio = SystemAudioRecorder()
             self.system_audio.start()
             self.notetaker_mic.start()
             self.notetaker_active = True
-            self.history.notetaker_status.setText("Recording microphone and default speaker audio...")
+            self.history.status_label.setText("Recording meeting...")
+            self.history.set_meeting_state("recording", "Recording microphone and computer audio. Stop when your meeting ends.")
         except Exception as exc:
             self.stop_meeting_capture()
-            self.history.notetaker_status.setText(f"Could not start meeting capture: {exc}")
+            self.history.set_meeting_state("idle", f"Could not start meeting capture: {exc}")
+
+    def discard_meeting(self):
+        if self.processing:
+            return
+        self._meeting_audio = None
+        self._meeting_capture_warnings = []
+        self.history.notetaker.set_recovery(False)
+        self.history.set_meeting_state("idle", "Recording discarded.")
+
+    def process_meeting(self):
+        if self.closing or self.processing or self.recording or self._meeting_audio is None:
+            return
+        try:
+            # Retry uses the current toggles so a failed optional model can be disabled.
+            self.meeting_options = self.history.notetaker.processing_options()
+            chunks = queue.Queue()
+            for offset in range(0, len(self._meeting_audio), 3 * 16_000):
+                chunks.put(self._meeting_audio[offset:offset + 3 * 16_000])
+            chunks.put(None)
+            self.processing = True
+            self.active_mode = "notetaker"
+            self.history.notetaker.set_recovery(False)
+            self.history.set_meeting_state("transcribing", "Processing meeting audio locally...")
+            self.history.status_label.setText("Transcribing meeting...")
+            self.engine.run(chunks, model="voz", meeting_options=self.meeting_options)
+        except Exception as exc:
+            self.error(str(exc))
 
     def stop_meeting_capture(self):
         errors = []
@@ -711,37 +781,33 @@ class Assistant(QObject):
         try:
             self.notetaker_active = False
             system, errors = self.stop_meeting_capture()
-            if errors:
-                raise RuntimeError("; ".join(errors))
             mic_chunks = []
-            while True:
-                chunk = self.notetaker_chunks.get()
+            while not self.notetaker_chunks.empty():
+                chunk = self.notetaker_chunks.get_nowait()
                 if chunk is None:
                     break
                 mic_chunks.append(chunk)
             mic = np.concatenate(mic_chunks) if mic_chunks else np.empty(0, dtype=np.float32)
             length = max(len(mic), len(system))
             if not length:
-                self.history.notetaker_status.setText("No meeting audio was captured.")
+                self.history.set_meeting_state("idle", "Capture failed: " + "; ".join(errors) if errors else "No meeting audio was captured.")
                 return
             mixed = np.zeros(length, dtype=np.float32)
             if len(mic):
                 mixed[:len(mic)] += mic * 0.5
             if len(system):
                 mixed[:len(system)] += system * 0.5
-            chunks = queue.Queue()
-            for offset in range(0, length, 3 * 16_000):
-                chunks.put(mixed[offset:offset + 3 * 16_000])
-            chunks.put(None)
-            self.processing = True
-            self.active_mode = "notetaker"
-            self.history.notetaker_status.setText("Transcribing meeting audio...")
-            hints = self.history.dictionary_words() + list(self.history.snippets())
-            self.engine.run(chunks, keywords=hints, model=self.history.engine_choice.currentData())
+            self._meeting_audio = mixed
+            if errors:
+                self._meeting_capture_warnings = ["Capture error: " + "; ".join(errors) + ". Some audio may be missing."]
+                self.history.set_meeting_state("idle", self._meeting_capture_warnings[0] + " Available audio is kept for Retry processing.")
+                self.history.notetaker.set_recovery(True)
+            else:
+                self.process_meeting()
         except Exception as exc:
             self.processing = False
             self.active_mode = "dictation"
-            self.history.notetaker_status.setText(f"Meeting transcription failed: {exc}")
+            self.history.set_meeting_state("idle", f"Meeting transcription failed: {exc}")
 
     @Slot(str)
     def error(self, message):
@@ -756,7 +822,8 @@ class Assistant(QObject):
         self.recording = False
         self.history.status_label.setText(message[:120])
         if self.active_mode == "notetaker":
-            self.history.notetaker_status.setText(f"Meeting transcription failed: {message}")
+            self.history.set_meeting_state("idle", f"Meeting transcription failed: {message}")
+            self.history.notetaker.set_recovery(self._meeting_audio is not None)
             self.active_mode = "dictation"
             return
         self.overlay.state = "Error"
@@ -787,6 +854,7 @@ class Assistant(QObject):
         if self.closing:
             return
         self.closing = True
+        self.history.notetaker.timer.stop()
         self.paste_timer.stop()
         if self.recorder:
             try:
@@ -794,6 +862,7 @@ class Assistant(QObject):
             except Exception:
                 pass
         self.stop_meeting_capture()
+        self._meeting_audio = None
         self.engine.close()
         if self.hotkeys:
             self.hotkeys.stop()

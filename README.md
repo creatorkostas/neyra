@@ -1,6 +1,12 @@
 # Neyra — Local Desktop Voice Assistant (MVP)
 
-A frameless, always-on-top PySide6 dictation widget backed by Cactus Whistle by default, with optional Desert Ant Voz transcription. Windows 10/11 and Linux (X11 best supported; Wayland limitations below). Whistle is pinned to English and streams live previews every three seconds. Voz supports 25 languages and produces its transcript after recording stops.
+A frameless, always-on-top PySide6 dictation widget backed by Cactus Whistle by default, with optional Desert Ant Voz transcription. Windows 10/11 and Linux (X11 best supported; Wayland limitations below). Whistle is pinned to English, preloads in the background, and streams live previews about once per second. Voz supports 25 languages and produces its transcript after recording stops.
+
+## Current state
+
+Neyra is a useful local speech-to-text tool in an early state. Its default Needle Whistle model is small and uses very little RAM. Transcription results are usable, but not exceptional.
+
+Download the Windows and Linux builds from the [latest release](https://github.com/creatorkostas/neyra/releases/latest).
 
 ## Install with uv
 
@@ -19,7 +25,7 @@ To enable the optional Voz engine, install Node.js 20 or newer, then install its
 npm install
 ```
 
-In Neyra's **Style** page, choose **Whistle** for live text every three seconds, or **Voz** for a final transcript after recording stops. Voz downloads its model on first use (about 400 MB) and keeps it locally. Neyra reuses the loaded Voz model until the app exits; it uses about 1.2 GB of memory, and its Node runtime runs inference on the CPU with at most four inference threads. The dashboard shows model download progress in MB, and stalled downloads or engine failures can be retried. Recorded audio is not sent to a server. Voz's JavaScript API does not currently use Neyra's custom dictionary hints. The current Nuitka build does not bundle Node.js, so Voz in a packaged build requires Node.js and the npm packages to be available alongside the app.
+In Neyra's **Style** page, choose **Whistle** for live text about once per second, or **Voz** for a final transcript after recording stops. Whistle loads its model into CPU memory in the background when selected. Voz downloads its model on first use (about 400 MB) and keeps it locally. Neyra reuses the loaded Voz model until the app exits; it uses about 1.2 GB of memory, and its Node runtime runs inference on the CPU with at most four inference threads. The dashboard shows model download progress in MB, and stalled downloads or engine failures can be retried. Recorded audio is not sent to a server. Voz's JavaScript API does not currently use Neyra's custom dictionary hints. The current Nuitka build does not bundle Node.js, so Voz in a packaged build requires Node.js and the npm packages to be available alongside the app.
 
 For a microphone and native-engine smoke test:
 
@@ -44,19 +50,51 @@ uv run python scripts/build.py --standalone
 
 Build on Windows to produce `dist/Neyra.exe`; build on Linux to produce `dist/Neyra`. Nuitka does not cross-compile. The executable is self-extracting, not a fully static binary; Linux still needs compatible system libraries and a display server.
 
-**Packaging caveat:** Cactus's fetched engine layout may change, and some distributions may contain multiple libraries. The build deliberately fails instead of silently falling back to online downloads. If `NEEDLE3_LIB_PATH` is ignored by a future Cactus release or native dependencies are missing, verify against that release and adjust the packaging. This build is not end-to-end tested on Windows or Linux here.
+**Packaging caveat:** Cactus's fetched engine layout may change, and some distributions may contain multiple libraries. The build deliberately fails instead of silently falling back to online downloads. If `NEEDLE3_LIB_PATH` is ignored by a future Cactus release or native dependencies are missing, verify against that release and adjust the packaging.
+
+## Publish a release
+
+Push a version tag such as `v0.1.0` to build both platform packages and publish them as GitHub release assets. The workflow also builds both packages on pushes to `main`.
 
 ## Controls
 
 - **Hold** `Ctrl+Win` to record; release either key to finish. The overlay hides on release, and the transcript is copied to the clipboard when transcription completes.
 - **Toggle** `Ctrl+Shift+Space` to start/stop recording.
 - The dashboard includes local Insights, a recognition dictionary, spoken snippets, output styles, and a Notetaker that captures the microphone and default speaker audio.
-- Notetaker summaries and follow-up suggestions use local sentence extraction rules; the mixed recording is not speaker-labeled.
+- Notetaker uses Voz and Align for word timestamps. Optional Who speaker labels, Clear audio cleanup, and Gist topic tags have separate controls on the Notetaker page.
+- Meeting titles are suggested from the transcript and can be edited. Search matches titles, topics, and transcript text. Summaries and follow-up suggestions still use local sentence extraction rules.
 - Double-click the system tray icon to open the dashboard. Search, copy, or delete transcripts in the dated history feed.
 - System tray right-click → Toggle recording / Copy last transcript / Show overlay / Quit.
 - Drag the widget by holding the left mouse button.
 
 Global shortcuts work through `pynput` on Windows and X11. They are **not** generally supported by pynput on native Wayland. For Wayland, use the tray menu or set up compositor-specific bindings / a desktop portal integration in a later iteration. Tray visibility also depends on the desktop environment.
+
+## Set up meeting models
+
+Install the Node packages for Voz with `npm install`. Build the native meeting helper with the setup script:
+
+```powershell
+uv run python scripts/setup_meeting_models.py
+```
+
+The helper uses the Desert Ant Swift SDK for Windows support. See [meeting runtime setup](runtime/meeting-models/README.md) for the Swift toolchain, C++ tools, and build options. The executable and its runtime libraries belong in `assets/meeting-models`. Set `NEYRA_MEETING_MODELS` to an absolute executable path to use another location.
+
+On the **Notetaker** page:
+
+- Enable **Speaker labels** to label turns with Who. Labels are numbers, not identified names. Overlapping turns can show multiple speakers.
+- Enable **Clean audio** to run Clear before transcription. Clear reduces noise and echo, but also suppresses music and other non-speech sound.
+- Enable **Organize notes** to suggest a title and add Gist topic tags. **Save title** updates a meeting title. Desert Ant Title is not used because its SDK requires Apple silicon.
+- Choose **Meeting language** for Align. The supported languages are English, Spanish, French, Italian, Portuguese, German, Japanese, Korean, and Chinese. Voz detects the spoken language independently.
+
+These settings apply to new recordings. Speaker labels and audio cleanup default to off; organization defaults to on. Meetings always use Voz followed by Align, independently of the dictation engine. Meeting transcripts preserve the recognized words instead of applying dictation styles or expanding snippets, which would break their timestamp correspondence.
+
+Open a meeting to see its timestamped transcript and **Word timestamps** tab. The start and end cells indicate whether Align refined that boundary or kept Voz's timing. **Copy transcript** includes timestamps and enabled speaker labels. The meeting card menu also offers **Copy plain text**.
+
+Model weights download on first use and are cached by the SDK. The native SDK also contacts Desert Ant for license activation. Audio processing runs locally. See the runtime guide for network and licensing details.
+
+A failed processing attempt keeps the mixed recording in memory for **Retry processing**. You can disable an optional model before retrying, or choose **Discard recording**. Closing Neyra discards that unsaved recording. Successful processing removes temporary audio files; existing saved notes cannot be reprocessed without their audio.
+
+The build script includes `assets/meeting-models` when present and excludes development toolchain installers. Node.js and the Voz npm packages remain separate runtime requirements. Verify the native helper and packaged application on the target machine before distributing.
 
 ## Text insertion
 

@@ -87,7 +87,7 @@ try {
       const result = await voz.transcribe(request.path, {
         onProgress: (fraction) => emit({ event: "transcribing", fraction }),
       });
-      emit({ event: "result", text: result.text || "" });
+      emit({ event: "result", text: result.text || "", words: result.words || [], duration: result.duration });
     } catch (error) {
       emit({ event: "error", message: error?.stack || String(error) });
     }
