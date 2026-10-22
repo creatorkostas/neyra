@@ -16,6 +16,18 @@ from .meeting import MeetingModels, validated_words, label_words, suggested_titl
 LANGUAGE = "en"
 SAMPLE_RATE = 16_000
 UPDATE_SECONDS = 1
+RECOVERY_SECONDS = 6
+
+
+def _join_transcript(prefix, tail):
+    """Append a short re-transcribed audio tail without repeating its overlap."""
+    left = prefix.split()
+    right = tail.split()
+    normalize = lambda word: "".join(char.casefold() for char in word if char.isalnum())
+    for size in range(min(len(left), len(right)), 0, -1):
+        if [normalize(word) for word in left[-size:]] == [normalize(word) for word in right[:size]]:
+            return " ".join([*left, *right[size:]])
+    return " ".join([*left, *right])
 
 class Transcriber(QObject):
     partial = Signal(str)
@@ -101,15 +113,29 @@ class Transcriber(QObject):
                     self._wait_for_whistle()
                     import needle
                     committed = []
+                    recovery_audio = deque()
+                    recovery_samples = 0
                     def update_chunks():
+                        nonlocal recovery_samples
                         pending = []
                         sample_count = 0
                         while True:
                             item = chunks.get()
                             if item is None:
                                 break
-                            pending.append(item)
-                            sample_count += len(item)
+                            samples = np.asarray(item, dtype=np.float32)
+                            recovery_audio.append(samples.copy())
+                            recovery_samples += len(samples)
+                            while recovery_samples > SAMPLE_RATE * RECOVERY_SECONDS:
+                                excess = recovery_samples - SAMPLE_RATE * RECOVERY_SECONDS
+                                first = recovery_audio.popleft()
+                                if len(first) > excess:
+                                    recovery_audio.appendleft(first[excess:])
+                                    recovery_samples -= excess
+                                else:
+                                    recovery_samples -= len(first)
+                            pending.append(samples)
+                            sample_count += len(samples)
                             if sample_count >= SAMPLE_RATE * UPDATE_SECONDS:
                                 yield np.concatenate(pending)
                                 pending = []
@@ -118,13 +144,37 @@ class Transcriber(QObject):
                             yield np.concatenate(pending)
 
                     pending_text = ""
-                    for step in needle.stream(update_chunks(), language=LANGUAGE, keywords=keywords):
-                        fragment = str(step.get("text") or "").strip()
-                        if fragment:
-                            committed.append(fragment)
-                        pending_text = str(step.get("pending") or "").strip()
-                        self.partial.emit(" ".join([*committed, pending_text]).strip())
-                    result = " ".join(committed).strip()
+                    try:
+                        for step in needle.stream(update_chunks(), language=LANGUAGE, keywords=keywords):
+                            fragment = str(step.get("text") or "").strip()
+                            if fragment:
+                                committed.append(fragment)
+                            pending_text = str(step.get("pending") or "").strip()
+                            self.partial.emit(" ".join([*committed, pending_text]).strip())
+                        result = " ".join(committed).strip()
+                    except json.JSONDecodeError as stream_error:
+                        # Some Linux engine builds can return malformed JSON when the
+                        # streaming session is finalized. Re-transcribe the last few
+                        # seconds so releasing the speak key still returns usable text.
+                        recovered = ""
+                        if recovery_audio:
+                            try:
+                                audio_tail = np.concatenate(tuple(recovery_audio))
+                                recovered = str(needle.transcribe(
+                                    audio_tail, language=LANGUAGE, keywords=keywords
+                                ).get("text") or "").strip()
+                            except Exception:
+                                recovered = ""
+                        prefix = " ".join(committed).strip()
+                        if recovered:
+                            result = _join_transcript(prefix, recovered)
+                        else:
+                            result = " ".join([prefix, pending_text]).strip()
+                        if not result:
+                            raise RuntimeError(
+                                "Whistle returned invalid data while finishing this recording. "
+                                "Please retry or choose Voz in Settings."
+                            ) from stream_error
             except Exception as exc:
                 failure = f"{type(exc).__name__}: {exc}"
             finally:
