@@ -1,3 +1,4 @@
+import locale
 import sys
 import math
 import queue
@@ -871,6 +872,9 @@ class Assistant(QObject):
 
 def main():
     app = QApplication(sys.argv)
+    # Qt adopts the user's process locale on Unix. Keep C numeric formatting
+    # locale-independent for JSON emitted by the native Whistle engine.
+    locale.setlocale(locale.LC_NUMERIC, "C")
     app.setQuitOnLastWindowClosed(False)
     controller = Assistant(app)
     sys.exit(app.exec())
