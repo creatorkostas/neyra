@@ -22,6 +22,10 @@ jobs:
             artifact: Neyra-Linux-x86_64
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
       - uses: astral-sh/setup-uv@v10.3.2
         with:
           python-version: "3.12"
@@ -31,6 +35,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential patchelf
       - name: Install project and build dependencies
         run: uv sync --extra build
+      - name: Install Voz runtime dependencies
+        run: npm ci --omit=dev
       - name: Build executable
         run: uv run python scripts/build.py --onefile
       - name: Package Linux executable
@@ -51,13 +57,27 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
       - uses: actions/download-artifact@v8
         with:
           path: release-assets
           pattern: Neyra-*
           merge-multiple: true
+      - name: Prepare AUR submission files
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          python scripts/prepare_aur.py
+          --version "$RELEASE_TAG"
+          --archive release-assets/Neyra-Linux-x86_64.tar.gz
+          --output aur-output
       - uses: softprops/action-gh-release@v3
         with:
-          files: release-assets/*
+          files: |
+            release-assets/*
+            aur-output/neyra-bin-*-aur.tar.gz
           generate_release_notes: true
           fail_on_unmatched_files: true

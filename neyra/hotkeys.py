@@ -6,6 +6,8 @@ class Hotkeys(QObject):
     hold_start = Signal()
     hold_stop = Signal()
     toggle = Signal()
+    reminder_start = Signal()
+    reminder_stop = Signal()
 
     def __init__(self):
         super().__init__()
@@ -13,6 +15,7 @@ class Hotkeys(QObject):
         self._keys = set()
         self.holding = False
         self.toggle_latched = False
+        self.reminder_holding = False
         self.listener = None
 
     @staticmethod
@@ -31,10 +34,13 @@ class Hotkeys(QObject):
             if key in self._keys: return
             self._keys.add(key)
             self.pressed = {self.normalize(value) for value in self._keys}
-            if {"ctrl", "win"}.issubset(self.pressed) and not self.holding:
+            if self.pressed == {"ctrl", "alt", "space"} and not self.reminder_holding and not self.holding and not self.toggle_latched:
+                self.reminder_holding = True
+                self.reminder_start.emit()
+            if {"ctrl", "win"}.issubset(self.pressed) and not self.holding and not self.reminder_holding:
                 self.holding = True
                 self.hold_start.emit()
-            if {"ctrl", "shift", "space"}.issubset(self.pressed) and not self.toggle_latched:
+            if self.pressed == {"ctrl", "shift", "space"} and not self.toggle_latched and not self.holding and not self.reminder_holding:
                 self.toggle_latched = True
                 self.toggle.emit()
         def up(key):
@@ -45,6 +51,9 @@ class Hotkeys(QObject):
             if self.holding and not {"ctrl", "win"}.issubset(self.pressed):
                 self.holding = False
                 self.hold_stop.emit()
+            if self.reminder_holding and not {"ctrl", "alt", "space"}.issubset(self.pressed):
+                self.reminder_holding = False
+                self.reminder_stop.emit()
             if not {"ctrl", "shift", "space"}.issubset(self.pressed):
                 self.toggle_latched = False
         self.listener = keyboard.Listener(on_press=down, on_release=up)
@@ -57,6 +66,7 @@ class Hotkeys(QObject):
         self._keys.clear()
         self.holding = False
         self.toggle_latched = False
+        self.reminder_holding = False
 
     def modifiers_active(self):
         return bool(self.pressed & {"ctrl", "win", "shift", "alt"})

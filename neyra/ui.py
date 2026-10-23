@@ -1,5 +1,6 @@
 """Dashboard icons, theme and the dated transcript feed."""
 from datetime import datetime
+import math
 import time
 from PySide6.QtCore import Qt, QSize, QByteArray, Signal, QTimer
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QPen, QColor
@@ -8,7 +9,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QScrollArea, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFrame, QMenu, QComboBox, QListView, QLineEdit,
     QDialog, QMessageBox, QTextEdit, QTabWidget, QCheckBox, QTableWidget,
-    QTableWidgetItem, QAbstractItemView, QHeaderView,
+    QTableWidgetItem, QAbstractItemView, QHeaderView, QProgressBar,
 )
 from .text_tools import meeting_brief
 from .meeting import meeting_transcript, timestamp, speaker_label
@@ -16,6 +17,7 @@ from .meeting import meeting_transcript, timestamp, speaker_label
 PATHS = {
     "dictation": '<rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M9 22h6"/>',
     "notetaker": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>',
+    "reminders": '<path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5zM10 20a2 2 0 0 0 4 0M12 2v2"/>',
     "insights": '<path d="M4 3v18h17M8 16v-5M13 16V6M18 16v-8"/>',
     "dictionary": '<path d="M6 3h9l4 4v14H6zM15 3v5h4M10 12v5h4v-5z"/>',
     "snippets": '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="m8 8 13 13M8 16 21 3"/>',
@@ -31,6 +33,7 @@ PATHS = {
     "maximize": '<rect x="5" y="5" width="14" height="14"/>',
     "wave": '<path d="M3 7v10M7 3v18M11 9v6M15 5v14M19 2v20M23 7v10"/>',
     "calendar": '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6M17 2v6M3 11h18M7 15h1M12 15h1M17 15h1"/>',
+    "refresh": '<path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 2M4 17l2 2a7 7 0 0 0 12-2"/>',
 }
 
 
@@ -72,6 +75,7 @@ QLabel#dateLabel { color: #777168; font-size: 12px; letter-spacing: 1px; padding
 QPushButton { color: #191819; background: #eeece6; border: 0; border-radius: 8px; padding: 9px 14px; }
 QPushButton:hover { background: #e6e3dc; }
 QPushButton:disabled { color: #979087; background: #f0eee9; }
+QPushButton:focus { border: 2px solid #9770b7; padding: 7px 12px; }
 QPushButton#nav { background: transparent; text-align: left; padding: 8px 10px; }
 QPushButton#nav:checked, QPushButton#nav:hover { background: #eeece5; }
 QPushButton#primary { background: #1e1d1c; color: white; }
@@ -115,7 +119,150 @@ QProgressBar::chunk { background: #8037af; border-radius: 3px; }
 QMenu { background: white; color: #191819; border: 1px solid #e5e0d7; padding: 5px; }
 QMenu::item { padding: 7px 18px; }
 QMenu::item:selected { background: #eeeae2; }
+QFrame#captureCard { background: #282333; border: none; border-radius: 18px; }
+QLabel#captureTitle { color: #faf7ff; font-size: 22px; font-weight: 600; }
+QLabel#captureDetail { color: #c7bfd3; font-size: 12px; }
+QLabel#engineBadge { color: #e4d7fa; background: #44364f; border-radius: 9px; padding: 5px 10px; font-size: 12px; }
+QLabel#engineBadge[state="ready"] { color: #b3efdb; background: #284b42; }
+QLabel#engineBadge[state="error"] { color: #ffc3c7; background: #62363e; }
+QPushButton#recordButton { background: #d9b9fb; color: #292033; font-weight: 600; padding: 12px 22px; border-radius: 12px; }
+QPushButton#recordButton:hover { background: #e7d0ff; }
+QPushButton#recordButton[recording="true"] { background: #ffd0ca; color: #652b29; }
+QPushButton#recordButton:disabled { background: #4c435a; color: #b6a9c4; }
+QProgressBar#modelProgress { background: #494052; min-height: 4px; max-height: 4px; }
+QProgressBar#modelProgress::chunk { background: #d9b9fb; }
+QFrame#settingsCard { background: #f6f5f1; border: 1px solid #ece8e0; border-radius: 14px; }
+QLabel#sectionTitle { font-size: 16px; font-weight: 600; }
+QLabel#settingStatus { color: #655276; font-size: 12px; }
+QPushButton#danger { color: #a23940; background: #faeaea; }
+QPushButton#danger:hover { background: #f5d9db; }
+QCheckBox { spacing: 9px; padding: 6px 0; }
+QCheckBox::indicator { width: 17px; height: 17px; }
 """
+
+
+class InputMeter(QWidget):
+    """RMS input level in dBFS, with a short decay between audio callbacks."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(100, 24)
+        self.setMaximumHeight(30)
+        self.setAccessibleName("Microphone input level")
+        self.level = 0.0
+        self.timer = QTimer(self)
+        self.timer.setInterval(60)
+        self.timer.timeout.connect(self.decay)
+
+    def set_level(self, rms):
+        db = 20 * math.log10(max(float(rms), 0.00001)) if math.isfinite(rms) else -100
+        self.level = max(0, min(1, (db + 60) / 60))
+        self.setAccessibleDescription(f"{db:.0f} dBFS")
+        self.timer.start()
+        self.update()
+
+    def decay(self):
+        self.level = max(0, self.level - 0.025)
+        if self.level == 0:
+            self.timer.stop()
+        self.update()
+
+    def reset(self):
+        self.timer.stop()
+        self.level = 0
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setPen(Qt.PenStyle.NoPen)
+        count = 36
+        width = self.width() / count
+        for i in range(count):
+            color = "#514959" if self.property("onDark") else "#d9d4df"
+            if i < round(self.level * count):
+                color = "#e6ab69" if i > 29 else "#5dbb9b"
+            painter.setBrush(QColor(color))
+            painter.drawRoundedRect(int(i * width), 4, max(2, int(width - 3)), self.height() - 8, 2, 2)
+
+
+class DictationPanel(QFrame):
+    toggle_requested = Signal()
+    settings_requested = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("captureCard")
+        box = QVBoxLayout(self)
+        box.setContentsMargins(24, 20, 24, 18)
+        box.setSpacing(12)
+        top = QHBoxLayout()
+        self.title = QLabel("Ready when you are")
+        self.title.setObjectName("captureTitle")
+        top.addWidget(self.title, 1)
+        self.model_badge = QLabel("Whistle · Loading")
+        self.model_badge.setObjectName("engineBadge")
+        top.addWidget(self.model_badge)
+        box.addLayout(top)
+        self.detail = QLabel("Hold Ctrl + Win to dictate into another app, or record here.")
+        self.detail.setObjectName("captureDetail")
+        self.detail.setTextFormat(Qt.TextFormat.PlainText)
+        self.detail.setWordWrap(True)
+        box.addWidget(self.detail)
+        row = QHBoxLayout()
+        self.record_button = QPushButton("Start dictation")
+        self.record_button.setObjectName("recordButton")
+        self.record_button.clicked.connect(self.toggle_requested.emit)
+        row.addWidget(self.record_button)
+        self.meter = InputMeter()
+        self.meter.setProperty("onDark", True)
+        row.addWidget(self.meter, 1)
+        self.microphone_button = QPushButton("Microphone settings")
+        self.microphone_button.setObjectName("textButton")
+        self.microphone_button.setStyleSheet("color: #d7c6eb;")
+        self.microphone_button.clicked.connect(self.settings_requested.emit)
+        row.addWidget(self.microphone_button)
+        box.addLayout(row)
+        self.model_detail = QLabel("Loading the local model...")
+        self.model_detail.setObjectName("captureDetail")
+        self.model_detail.setTextFormat(Qt.TextFormat.PlainText)
+        self.model_detail.setWordWrap(True)
+        box.addWidget(self.model_detail)
+        self.progress = QProgressBar()
+        self.progress.setObjectName("modelProgress")
+        self.progress.setTextVisible(False)
+        self.progress.setAccessibleName("Model progress")
+        box.addWidget(self.progress)
+
+    def set_session(self, state, message=None):
+        self.title.setText({"idle": "Ready when you are", "recording": "Listening to you",
+                            "processing": "Putting your words together", "error": "Something needs attention",
+                            "meeting": "Notetaker is active"}[state])
+        self.record_button.setText("Stop and transcribe" if state == "recording" else "Start dictation")
+        self.record_button.setEnabled(state not in ("processing", "meeting"))
+        self.record_button.setProperty("recording", state == "recording")
+        self.record_button.style().unpolish(self.record_button)
+        self.record_button.style().polish(self.record_button)
+        detail = message or {"idle": "Hold Ctrl + Win to dictate into another app, or record here.",
+                                       "recording": "Speak naturally. Stop recording when you finish.",
+                                       "processing": "Your recording is being transcribed locally.",
+                                       "meeting": "Finish your meeting before starting a dictation.",
+                                       "error": "Check your microphone and model settings, then try again."}[state]
+        self.detail.setText(detail[:400])
+        self.detail.setToolTip(detail)
+        if state != "recording":
+            self.meter.reset()
+
+    def set_model_status(self, model, state, detail, percent=-1):
+        names = {"idle": "Not loaded", "loading": "Loading", "downloading": "Downloading",
+                 "ready": "Ready", "transcribing": "Transcribing", "error": "Needs attention"}
+        self.model_badge.setText(f"{model.title()} · {names.get(state, state.title())}")
+        self.model_badge.setProperty("state", state)
+        self.model_badge.style().unpolish(self.model_badge)
+        self.model_badge.style().polish(self.model_badge)
+        self.model_detail.setText(detail[:240])
+        self.model_detail.setToolTip(detail)
+        self.progress.setVisible(state in ("loading", "downloading", "transcribing"))
+        self.progress.setRange(0, 0 if percent < 0 else 100)
+        self.progress.setValue(max(0, percent))
 
 
 class DashboardComboBox(QComboBox):

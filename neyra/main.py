@@ -4,18 +4,22 @@ import math
 import queue
 import json
 import time
+import shutil
 import numpy as np
 from datetime import datetime
-from PySide6.QtCore import Qt, QTimer, QPoint, Signal, QSize, QSettings, QObject, Slot
+from PySide6.QtCore import Qt, QTimer, QPoint, Signal, QSize, QSettings, QObject, Slot, QProcess
 from PySide6.QtGui import QColor, QPainter, QPen, QAction
-from PySide6.QtWidgets import QApplication, QWidget, QSystemTrayIcon, QMenu, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QPushButton, QFrame, QStackedWidget, QLineEdit, QTableWidget, QTableWidgetItem, QProgressBar, QMessageBox, QAbstractItemView
-from .audio import Microphone
+from PySide6.QtWidgets import QApplication, QWidget, QSystemTrayIcon, QMenu, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QPushButton, QFrame, QStackedWidget, QLineEdit, QTableWidget, QTableWidgetItem, QProgressBar, QMessageBox, QAbstractItemView, QCheckBox, QScrollArea
+from .audio import Microphone, input_devices
 from .stt import Transcriber
 from .desktop import insert_text, is_wayland
 from .text_tools import apply_style, expand_snippets
 from .system_audio import SystemAudioRecorder
-from .ui import THEME, TranscriptFeed, DashboardComboBox, NotetakerPanel, icon, icon_button
+from .ui import THEME, TranscriptFeed, DashboardComboBox, NotetakerPanel, DictationPanel, InputMeter, icon, icon_button
 from .meeting import bridge_path, validated_words
+from . import startup
+from .reminders import ReminderStore
+from .reminders_ui import RemindersPanel, ReminderAlert, due_label
 
 
 def load_setting(settings, key, expected, default):
@@ -116,6 +120,9 @@ class Overlay(QWidget):
 class HistoryDashboard(QDialog):
     notetaker_start = Signal()
     notetaker_stop = Signal()
+    closed = Signal()
+    history_cleared = Signal()
+    transcript_deleted = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -129,6 +136,8 @@ class HistoryDashboard(QDialog):
         self.setSizeGripEnabled(True)
         self.settings = QSettings(QSettings.defaultFormat(), QSettings.Scope.UserScope, "Neyra", "Neyra")
         self.records = load_records(self.settings, "history")[-500:]
+        self.model_states = {"whistle": ("idle", "Whistle loads in the background and recognizes English.", -1),
+                             "voz": ("idle", "Voz downloads its model on first use. Select it to start loading.", -1)}
         self.setStyleSheet(THEME)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 9, 9)
@@ -143,6 +152,7 @@ class HistoryDashboard(QDialog):
         bar_layout.addStretch()
         self.status_label = QLabel("Ready to dictate")
         self.status_label.setObjectName("muted")
+        self.status_label.setMaximumWidth(420)
         bar_layout.addWidget(self.status_label)
         bar_layout.addSpacing(20)
         for name, tip, callback in (
@@ -175,8 +185,8 @@ class HistoryDashboard(QDialog):
         brand_row.addStretch()
         side.addLayout(brand_row)
         side.addSpacing(23)
-        self.nav_buttons = []
-        for index, name in enumerate(("Dictation", "Notetaker", "Insights", "Dictionary", "Snippets", "Style")):
+        self.nav_buttons = {}
+        for index, name in ((0, "Dictation"), (1, "Notetaker"), (7, "Reminders"), (2, "Insights"), (3, "Dictionary"), (4, "Snippets"), (5, "Style")):
             button = QPushButton(name)
             button.setObjectName("nav")
             button.setIcon(icon(name.lower()))
@@ -185,7 +195,7 @@ class HistoryDashboard(QDialog):
             button.setFixedHeight(38)
             button.clicked.connect(lambda checked=False, page=index: self.show_page(page))
             side.addWidget(button)
-            self.nav_buttons.append(button)
+            self.nav_buttons[index] = button
         self.nav_buttons[0].setChecked(True)
         side.addStretch(1)
         promo = QFrame()
@@ -209,19 +219,22 @@ class HistoryDashboard(QDialog):
         promo_layout.addWidget(explore)
         side.addWidget(promo)
         side.addSpacing(14)
-        for name, callback in (("Settings", lambda: self.show_page(5)), ("Help", self.show_help)):
+        for name, callback in (("Settings", lambda: self.show_page(6)), ("Help", self.show_help)):
             button = QPushButton(name)
             button.setObjectName("nav")
             button.setIcon(icon(name.lower()))
             button.clicked.connect(callback)
+            if name == "Settings":
+                button.setCheckable(True)
+                self.nav_buttons[6] = button
             side.addWidget(button)
         main.addWidget(self.sidebar)
         content = QFrame()
         content.setObjectName("surface")
         body = QVBoxLayout(content)
-        body.setContentsMargins(40, 44, 32, 24)
+        body.setContentsMargins(30, 26, 30, 24)
         body.setSpacing(20)
-        self.heading = QLabel("Welcome back")
+        self.heading = QLabel("Dictation")
         self.heading.setObjectName("heading")
         body.addWidget(self.heading)
         self.pages = QStackedWidget()
@@ -230,7 +243,13 @@ class HistoryDashboard(QDialog):
 
         # Dictation history
         dictation = QWidget()
-        columns = QHBoxLayout(dictation)
+        dictation_layout = QVBoxLayout(dictation)
+        dictation_layout.setContentsMargins(0, 0, 0, 0)
+        dictation_layout.setSpacing(20)
+        self.capture = DictationPanel()
+        self.capture.settings_requested.connect(lambda: self.show_page(6))
+        dictation_layout.addWidget(self.capture)
+        columns = QHBoxLayout()
         columns.setContentsMargins(0, 0, 0, 0)
         columns.setSpacing(24)
         feed = QVBoxLayout()
@@ -249,6 +268,10 @@ class HistoryDashboard(QDialog):
         search_button = icon_button("search", "Search transcriptions")
         search_button.clicked.connect(self.toggle_search)
         search_row.addWidget(search_button)
+        self.clear_history_button = QPushButton("Clear history")
+        self.clear_history_button.setObjectName("textButton")
+        self.clear_history_button.clicked.connect(self.clear_history)
+        search_row.addWidget(self.clear_history_button)
         feed.addLayout(search_row)
         self.items = TranscriptFeed()
         self.items.show_first_date = False
@@ -287,7 +310,9 @@ class HistoryDashboard(QDialog):
         self.words_goal = QLabel()
         self.words_goal.setObjectName("muted")
         stats.addWidget(self.words_goal)
+        self.summary_card = summary
         columns.addWidget(summary, 0, Qt.AlignmentFlag.AlignTop)
+        dictation_layout.addLayout(columns, 1)
         self.pages.addWidget(dictation)
 
         # Meeting notes
@@ -302,7 +327,7 @@ class HistoryDashboard(QDialog):
         self.notetaker.record_updated.connect(self.save_meetings)
         self.notetaker.start_requested.connect(self.notetaker_start.emit)
         self.notetaker.stop_requested.connect(self.notetaker_stop.emit)
-        self.notetaker.settings_requested.connect(lambda: self.show_page(5))
+        self.notetaker.settings_requested.connect(lambda: self.show_page(6))
         self.notetaker.delete_requested.connect(self.delete_meeting)
         self.notetaker.intro_dismissed.connect(lambda: self.settings.setValue("notetaker_intro_dismissed", True))
         self.notetaker_status = self.notetaker.status
@@ -339,6 +364,35 @@ class HistoryDashboard(QDialog):
         remove_word = QPushButton("Remove selected")
         remove_word.clicked.connect(self.remove_dictionary_word)
         dictionary_layout.addWidget(remove_word, 0, Qt.AlignmentFlag.AlignRight)
+        dictionary_layout.addWidget(QLabel("Vocabulary corrections"))
+        correction_hint = QLabel("Replace a misheard word or phrase in new dictations. Works with both engines; meeting timestamps stay unchanged.")
+        correction_hint.setObjectName("muted")
+        correction_hint.setWordWrap(True)
+        dictionary_layout.addWidget(correction_hint)
+        self.corrections_table = QTableWidget(0, 2)
+        self.corrections_table.setAccessibleName("Vocabulary corrections")
+        self.corrections_table.setHorizontalHeaderLabels(["Heard as", "Write as"])
+        self.corrections_table.horizontalHeader().setStretchLastSection(True)
+        self.corrections_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.corrections_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        dictionary_layout.addWidget(self.corrections_table, 1)
+        correction_row = QHBoxLayout()
+        self.correction_heard = QLineEdit()
+        self.correction_heard.setPlaceholderText("Heard as, e.g. near a")
+        self.correction_written = QLineEdit()
+        self.correction_written.setPlaceholderText("Write as, e.g. Neyra")
+        save_correction = QPushButton("Save correction")
+        save_correction.clicked.connect(self.save_correction)
+        self.correction_written.returnPressed.connect(self.save_correction)
+        correction_row.addWidget(self.correction_heard, 1)
+        correction_row.addWidget(self.correction_written, 1)
+        correction_row.addWidget(save_correction)
+        dictionary_layout.addLayout(correction_row)
+        remove_correction = QPushButton("Remove correction")
+        remove_correction.clicked.connect(self.remove_correction)
+        dictionary_layout.addWidget(remove_correction, 0, Qt.AlignmentFlag.AlignRight)
+        self.corrections_table.itemSelectionChanged.connect(self.select_correction)
+        self.refresh_corrections()
         self.pages.addWidget(dictionary)
 
         # Spoken snippets
@@ -378,33 +432,197 @@ class HistoryDashboard(QDialog):
         self.style_choice.currentTextChanged.connect(lambda value: self.settings.setValue("style", value))
         style_layout.addWidget(self.style_choice)
         style_layout.addWidget(QLabel("Cleanup is local and rule-based. No cloud rewrite is used."))
-        style_layout.addWidget(QLabel("Transcription engine"))
-        self.engine_choice = DashboardComboBox()
-        self.engine_choice.addItem("Whistle — live text every 3 seconds", "whistle")
-        self.engine_choice.addItem("Voz — final text after release", "voz")
-        saved_engine = self.settings.value("transcription_engine", "whistle")
-        engine_index = self.engine_choice.findData(saved_engine)
-        self.engine_choice.setCurrentIndex(engine_index if engine_index >= 0 else 0)
-        self.engine_choice.currentIndexChanged.connect(
-            lambda _: self.settings.setValue("transcription_engine", self.engine_choice.currentData()))
-        style_layout.addWidget(self.engine_choice)
-        style_layout.addWidget(QLabel("Voz needs Node.js 20+ and downloads its model on first use. Node inference uses the CPU; its loaded model uses about 1.2 GB of memory."))
         style_layout.addStretch()
         self.pages.addWidget(style)
+        self.pages.addWidget(self.create_settings_page())
+        self.reminders = RemindersPanel()
+        self.pages.addWidget(self.reminders)
 
         self.items.refresh(self.records)
         self.update_stats()
         for button in self.findChildren(QPushButton):
             button.setAutoDefault(False)
+        for field in self.findChildren(QLineEdit):
+            field.setAccessibleName(field.placeholderText())
         for label in self.findChildren(QLabel):
             if len(label.text()) > 80:
                 label.setWordWrap(True)
 
+    def create_settings_page(self):
+        page = QScrollArea()
+        page.setWidgetResizable(True)
+        page.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        page.setWidget(content)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 8, 0)
+        layout.setSpacing(16)
+
+        def card(title, description):
+            frame = QFrame()
+            frame.setObjectName("settingsCard")
+            box = QVBoxLayout(frame)
+            box.setContentsMargins(22, 18, 22, 18)
+            box.setSpacing(10)
+            heading = QLabel(title)
+            heading.setObjectName("sectionTitle")
+            box.addWidget(heading)
+            note = QLabel(description)
+            note.setObjectName("muted")
+            note.setWordWrap(True)
+            box.addWidget(note)
+            layout.addWidget(frame)
+            return box
+
+        microphone = card("Microphone", "Choose the input used for dictation and meetings. Test it without saving any audio.")
+        row = QHBoxLayout()
+        self.mic_choice = DashboardComboBox()
+        self.mic_choice.setAccessibleName("Microphone")
+        row.addWidget(self.mic_choice, 1)
+        self.refresh_mics_button = icon_button("refresh", "Refresh microphones")
+        row.addWidget(self.refresh_mics_button)
+        microphone.addLayout(row)
+        meter_row = QHBoxLayout()
+        self.test_mic_button = QPushButton("Test microphone")
+        meter_row.addWidget(self.test_mic_button)
+        self.input_meter = InputMeter()
+        meter_row.addWidget(self.input_meter, 1)
+        microphone.addLayout(meter_row)
+        self.mic_status = QLabel("The meter lights up while testing or recording.")
+        self.mic_status.setObjectName("settingStatus")
+        self.mic_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.mic_status.setWordWrap(True)
+        microphone.addWidget(self.mic_status)
+        self.refresh_microphones()
+        self.mic_choice.currentIndexChanged.connect(lambda _: self.settings.setValue("microphone", self.mic_choice.currentText() if self.mic_choice.currentData() is not None else ""))
+
+        engine = card("Speech model", "Whistle gives live English text. Voz supports 25 languages and returns text when you stop recording.")
+        self.engine_choice = DashboardComboBox()
+        self.engine_choice.setAccessibleName("Transcription engine")
+        self.engine_choice.addItem("Whistle · Lightweight, live English text", "whistle")
+        self.engine_choice.addItem("Voz · Multilingual, final transcript", "voz")
+        saved_engine = self.settings.value("transcription_engine", "whistle")
+        engine_index = self.engine_choice.findData(saved_engine)
+        self.engine_choice.setCurrentIndex(engine_index if engine_index >= 0 else 0)
+        self.engine_choice.currentIndexChanged.connect(
+            lambda _: self.settings.setValue("transcription_engine", self.engine_choice.currentData()))
+        self.engine_choice.currentIndexChanged.connect(self.refresh_model_status)
+        engine.addWidget(self.engine_choice)
+        self.model_status_label = QLabel()
+        self.model_status_label.setObjectName("settingStatus")
+        self.model_status_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.model_status_label.setWordWrap(True)
+        engine.addWidget(self.model_status_label)
+        self.retry_model_button = QPushButton("Load / retry model")
+        engine.addWidget(self.retry_model_button, 0, Qt.AlignmentFlag.AlignLeft)
+        engine.addWidget(QLabel("Voz needs Node.js 20+ and downloads about 400 MB once. Its loaded model uses about 1.2 GB of RAM. Both engines use the CPU."))
+        self.refresh_model_status()
+
+        desktop = card("Desktop", "Keep Neyra available in the system tray. Login startup uses your current app location.")
+        self.autostart_toggle = QCheckBox("Start Neyra at login")
+        try:
+            self.autostart_toggle.setChecked(startup.is_enabled())
+        except OSError:
+            self.autostart_toggle.setEnabled(False)
+        self.autostart_toggle.toggled.connect(self.change_autostart)
+        desktop.addWidget(self.autostart_toggle)
+        self.close_to_tray_toggle = QCheckBox("Keep running in the tray when I close the window")
+        self.close_to_tray_toggle.setChecked(self.settings.value("close_to_tray", True, type=bool))
+        self.close_to_tray_toggle.toggled.connect(lambda value: self.settings.setValue("close_to_tray", value))
+        desktop.addWidget(self.close_to_tray_toggle)
+        self.desktop_status = QLabel("Autostart opens in the tray when your desktop supports a tray icon.")
+        self.desktop_status.setObjectName("settingStatus")
+        self.desktop_status.setWordWrap(True)
+        desktop.addWidget(self.desktop_status)
+
+        privacy = card("Local history", "Keep up to 500 dictations on this computer. Meeting notes are saved separately in Notetaker.")
+        self.save_history_toggle = QCheckBox("Save new dictations to history")
+        self.save_history_toggle.setChecked(self.settings.value("save_history", True, type=bool))
+        self.save_history_toggle.toggled.connect(lambda value: self.settings.setValue("save_history", value))
+        privacy.addWidget(self.save_history_toggle)
+        clear = QPushButton("Clear dictation history")
+        clear.setObjectName("danger")
+        clear.clicked.connect(self.clear_history)
+        privacy.addWidget(clear, 0, Qt.AlignmentFlag.AlignLeft)
+        layout.addStretch()
+        return page
+
+    def refresh_microphones(self):
+        saved = self.settings.value("microphone", "")
+        self.mic_choice.blockSignals(True)
+        self.mic_choice.clear()
+        self.mic_choice.addItem("System default", None)
+        try:
+            for device, name in input_devices():
+                self.mic_choice.addItem(name, device)
+            index = self.mic_choice.findText(saved) if saved else 0
+            if index < 0:
+                self.mic_choice.addItem(saved, "missing")
+                index = self.mic_choice.count() - 1
+                self.mic_status.setText("Your saved microphone is unavailable. Reconnect it or choose another input.")
+            else:
+                self.mic_status.setText("The meter lights up while testing or recording.")
+            self.mic_choice.setCurrentIndex(index)
+        except Exception as exc:
+            if saved:
+                self.mic_choice.addItem(saved, "missing")
+                self.mic_choice.setCurrentIndex(1)
+            self.mic_status.setText(f"Could not list microphones: {exc}")
+        finally:
+            self.mic_choice.blockSignals(False)
+
+    def selected_microphone(self):
+        device = self.mic_choice.currentData()
+        if device == "missing":
+            raise RuntimeError("Your selected microphone is unavailable. Choose another input in Settings.")
+        return device
+
+    def change_autostart(self, enabled):
+        try:
+            startup.set_enabled(enabled)
+            self.desktop_status.setText("Neyra will start at login." if enabled else "Login startup is off.")
+        except (OSError, RuntimeError) as exc:
+            self.autostart_toggle.blockSignals(True)
+            self.autostart_toggle.setChecked(not enabled)
+            self.autostart_toggle.blockSignals(False)
+            self.desktop_status.setText(f"Could not change login startup: {exc}")
+
+    @Slot(str, str, str, int)
+    def set_model_status(self, model, state, detail, percent=-1):
+        self.model_states[model] = (state, detail, percent)
+        if self.engine_choice.currentData() == model:
+            self.refresh_model_status()
+
+    def refresh_model_status(self, *_):
+        model = self.engine_choice.currentData()
+        state, detail, percent = self.model_states[model]
+        self.capture.set_model_status(model, state, detail, percent)
+        self.model_status_label.setText(detail)
+        self.retry_model_button.setEnabled(state not in ("loading", "downloading", "transcribing", "ready"))
+
+    def set_capture_busy(self, busy):
+        for control in (self.mic_choice, self.refresh_mics_button, self.test_mic_button, self.engine_choice):
+            control.setEnabled(not busy)
+        if busy:
+            self.retry_model_button.setEnabled(False)
+        else:
+            self.refresh_model_status()
+
+    def closeEvent(self, event):
+        self.closed.emit()
+        super().closeEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(event)
+
     def show_page(self, index):
         self.pages.setCurrentIndex(index)
         self.heading.setVisible(index != 1)
-        self.heading.setText(("Welcome back", "Notetaker", "Insights", "Dictionary", "Snippets", "Style & settings")[index])
-        for i, button in enumerate(self.nav_buttons):
+        self.heading.setText(("Dictation", "Notetaker", "Insights", "Dictionary", "Snippets", "Output style", "Settings", "Reminders")[index])
+        for i, button in self.nav_buttons.items():
             button.setChecked(i == index)
 
     def toggle_maximized(self):
@@ -413,6 +631,8 @@ class HistoryDashboard(QDialog):
     def resizeEvent(self, event):
         if hasattr(self, "promo"):
             self.promo.setVisible(self.height() >= 770)
+        if hasattr(self, "summary_card"):
+            self.summary_card.setVisible(self.width() >= 1220)
         super().resizeEvent(event)
 
     def search_history(self, text):
@@ -424,7 +644,7 @@ class HistoryDashboard(QDialog):
             self.windowHandle().startSystemMove()
 
     def show_help(self):
-        QMessageBox.information(self, "Using Neyra", "Hold Ctrl + Win to dictate, then release to paste.\nCtrl + Shift + Space toggles recording.\n\nDouble-click the tray icon to open this dashboard.\nChoose your transcription engine in Settings.\nAll transcripts are stored locally on this computer.")
+        QMessageBox.information(self, "Using Neyra", "Hold Ctrl + Win to dictate, then release to paste.\nCtrl + Shift + Space toggles recording.\nHold Ctrl + Alt + Space to speak a reminder, then release to save it.\n\nExample: Remind me in an hour to take out the garbage.\nKeep Neyra running in the tray for on-time notifications.\n\nDouble-click the tray icon to open this dashboard.\nChoose your transcription engine in Settings.\nTranscripts and reminders are stored locally on this computer.")
 
     def toggle_search(self):
         self.search_input.setVisible(not self.search_input.isVisible())
@@ -434,18 +654,40 @@ class HistoryDashboard(QDialog):
             self.search_input.clear()
 
     def delete_transcript(self, record):
-        self.records.remove(record)
+        index = next((i for i, item in enumerate(self.records) if item is record), None)
+        if index is None:
+            return
+        self.records.pop(index)
         self.settings.setValue("history", json.dumps(self.records))
         self.items.refresh(self.records)
         self.update_stats()
+        self.transcript_deleted.emit(record)
+
+    def clear_history(self):
+        if not self.records:
+            return
+        answer = QMessageBox.question(self, "Clear dictation history?",
+                                      "Delete all saved dictations from this computer? Meeting notes and your system clipboard are unchanged.",
+                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                      QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.records.clear()
+        self.settings.setValue("history", "[]")
+        self.items.refresh(self.records)
+        self.update_stats()
+        self.history_cleared.emit()
 
     def add_transcript(self, text, duration=0):
+        if not self.save_history_toggle.isChecked():
+            return
         record = {"text": text, "time": datetime.now().isoformat(timespec="seconds"), "duration": max(0, duration)}
         self.records.append(record)
         self.records = self.records[-500:]
         self.settings.setValue("history", json.dumps(self.records))
         self.items.refresh(self.records)
         self.update_stats()
+        return record
 
     def save_meeting_options(self):
         for key, value in self.notetaker.processing_options().items():
@@ -502,6 +744,7 @@ class HistoryDashboard(QDialog):
         self.latest_stat.setText(number(streak, "day streak"))
         self.words_progress.setValue(min(total_words, 5000))
         self.words_goal.setText(f"{total_words:,} / 5,000 words")
+        self.clear_history_button.setEnabled(bool(self.records))
         self.insights_words.setText(f"{total_words:,} total words")
         self.insights_count.setText(f"{len(self.records)} dictations")
         self.insights_streak.setText(f"{streak} day streak")
@@ -523,6 +766,45 @@ class HistoryDashboard(QDialog):
         if row >= 0:
             self.dictionary_items.takeItem(row)
             self.settings.setValue("dictionary", json.dumps([self.dictionary_items.item(i).text() for i in range(self.dictionary_items.count())]))
+
+    def vocabulary_corrections(self):
+        return {key: value for key, value in load_setting(self.settings, "vocabulary_corrections", dict, {}).items()
+                if isinstance(key, str) and key.strip() and isinstance(value, str) and value.strip()}
+
+    def refresh_corrections(self):
+        self.corrections_table.setRowCount(0)
+        for heard, written in self.vocabulary_corrections().items():
+            row = self.corrections_table.rowCount()
+            self.corrections_table.insertRow(row)
+            self.corrections_table.setItem(row, 0, QTableWidgetItem(heard))
+            self.corrections_table.setItem(row, 1, QTableWidgetItem(written))
+
+    def select_correction(self):
+        row = self.corrections_table.currentRow()
+        if row >= 0 and self.corrections_table.item(row, 1):
+            self.correction_heard.setText(self.corrections_table.item(row, 0).text())
+            self.correction_written.setText(self.corrections_table.item(row, 1).text())
+
+    def save_correction(self):
+        heard, written = self.correction_heard.text().strip(), self.correction_written.text().strip()
+        if not heard or not written:
+            return
+        corrections = {key: value for key, value in self.vocabulary_corrections().items() if key.casefold() != heard.casefold()}
+        corrections[heard] = written
+        self.settings.setValue("vocabulary_corrections", json.dumps(corrections))
+        self.refresh_corrections()
+        self.correction_heard.clear()
+        self.correction_written.clear()
+
+    def remove_correction(self):
+        row = self.corrections_table.currentRow()
+        if row >= 0:
+            corrections = self.vocabulary_corrections()
+            corrections.pop(self.corrections_table.item(row, 0).text(), None)
+            self.settings.setValue("vocabulary_corrections", json.dumps(corrections))
+            self.refresh_corrections()
+            self.correction_heard.clear()
+            self.correction_written.clear()
 
     def snippets(self):
         return {key: value for key, value in load_setting(self.settings, "snippets", dict, {}).items()
@@ -564,6 +846,14 @@ class Assistant(QObject):
         self.recording_duration = 0
         self.recording_started = 0
         self._pending_paste = ""
+        self._paste_on_complete = True
+        self.mic_test = None
+        self.reminder_command_time = None
+        self.notification_alerts = []
+        self._reminders_in_flight = set()
+        self.feedback_timer = QTimer(self)
+        self.feedback_timer.setSingleShot(True)
+        self.feedback_timer.timeout.connect(self.overlay_feedback_finished)
         self.paste_timer = QTimer(self)
         self.paste_timer.setInterval(50)
         self.paste_timer.timeout.connect(self.paste_when_released)
@@ -584,21 +874,56 @@ class Assistant(QObject):
         self._meeting_audio = None
         self._meeting_capture_warnings = []
         self.history = HistoryDashboard()
+        self.reminder_store = ReminderStore(self.history.settings)
+        self.history.reminders.refresh(self.reminder_store.records)
+        self.history.reminders.speak_requested.connect(self.toggle_reminder)
+        self.history.reminders.command_submitted.connect(self.submit_reminder)
+        self.history.reminders.remove_requested.connect(self.remove_reminder)
+        self.reminder_timer = QTimer(self)
+        self.reminder_timer.setInterval(1000)
+        self.reminder_timer.timeout.connect(self.check_reminders)
+        self.engine.model_status.connect(self.history.set_model_status)
+        self.history.capture.toggle_requested.connect(self.toggle_capture)
+        self.history.test_mic_button.clicked.connect(self.toggle_microphone_test)
+        self.history.refresh_mics_button.clicked.connect(self.refresh_microphones)
+        self.history.mic_choice.currentIndexChanged.connect(self.stop_microphone_test)
+        self.history.pages.currentChanged.connect(self.stop_microphone_test)
+        self.history.retry_model_button.clicked.connect(self.prepare_selected_engine)
+        self.history.closed.connect(self.dashboard_closed)
+        self.history.history_cleared.connect(self.clear_last_transcript)
+        self.history.transcript_deleted.connect(self.transcript_deleted)
+        self._last_record = self.history.records[-1] if self.history.records else None
+        self.last_text = self._last_record["text"] if self._last_record else ""
         self.app.aboutToQuit.connect(self.cleanup)
         self.history.notetaker_start.connect(self.start_notetaker)
         self.history.notetaker_stop.connect(self.stop_notetaker)
         self.history.notetaker.retry_requested.connect(self.process_meeting)
         self.history.notetaker.discard_requested.connect(self.discard_meeting)
         self.tray = QSystemTrayIcon(icon("wave"), app)
-        menu = QMenu()
-        for title, action in [("Toggle recording", self.toggle), ("Transcription history", self.show_history), ("Copy last transcript", self.copy_last), ("Show overlay", self.overlay.show), ("Quit", self.quit)]:
+        menu = self.tray_menu = QMenu()
+        self.tray_status = menu.addAction("Ready to dictate")
+        self.tray_status.setEnabled(False)
+        menu.addSeparator()
+        for title, action in [("Start dictation", self.toggle), ("Speak a reminder", self.toggle_reminder), ("Reminders", self.show_reminders), ("Stop Notetaker", self.stop_notetaker), ("Open Neyra", self.show_history), ("Copy last transcript", self.copy_last), ("Settings", self.show_settings), ("Quit Neyra", self.quit)]:
             item = QAction(title, menu)
             item.triggered.connect(action)
             menu.addAction(item)
+            if title == "Start dictation":
+                self.record_action = item
+            elif title == "Stop Notetaker":
+                self.meeting_action = item
+            elif title == "Copy last transcript":
+                self.copy_action = item
+            elif title == "Speak a reminder":
+                self.reminder_action = item
         self.tray.setContextMenu(menu)
         self.tray.setToolTip("Neyra")
         self.tray.activated.connect(self.tray_activated)
         self.tray.show()
+        tray_available = QSystemTrayIcon.isSystemTrayAvailable()
+        self.history.close_to_tray_toggle.setEnabled(tray_available)
+        if not tray_available:
+            self.history.desktop_status.setText("This desktop has no system tray. Closing the dashboard will quit Neyra.")
         self.history.engine_choice.currentIndexChanged.connect(self.prepare_selected_engine)
         self.hotkeys = None
         if not is_wayland():
@@ -606,25 +931,246 @@ class Assistant(QObject):
                 from .hotkeys import Hotkeys
                 self.hotkeys = Hotkeys()
                 self.hotkeys.hold_start.connect(self.start)
-                self.hotkeys.hold_stop.connect(self.stop)
+                self.hotkeys.hold_stop.connect(self.stop_dictation)
                 self.hotkeys.toggle.connect(self.toggle)
+                self.hotkeys.reminder_start.connect(self.start_reminder)
+                self.hotkeys.reminder_stop.connect(self.stop_reminder)
                 self.hotkeys.start()
             except Exception as exc:
                 self.overlay.text = f"Hotkeys unavailable: {exc}. Use tray menu."
         else:
             self.overlay.text = "Wayland: use tray menu; compositor shortcuts can be configured externally"
         self.prepare_selected_engine()
+        self.update_controls()
+        self.reminder_timer.start()
+        QTimer.singleShot(0, self.check_reminders)
 
     def prepare_selected_engine(self, *_):
         if self.history.engine_choice.currentData() == "whistle":
             self.engine.prepare_whistle()
+        else:
+            self.engine.prepare_voz()
+
+    def create_microphone(self, chunks, level):
+        device = self.history.selected_microphone()
+        return Microphone(chunks, level) if device is None else Microphone(chunks, level, device=device)
+
+    def toggle_microphone_test(self):
+        if self.mic_test:
+            self.stop_microphone_test()
+            return
+        if self.recording or self.notetaker_active or self.processing:
+            return
+        try:
+            self.mic_test = self.create_microphone(None, self.level_changed.emit)
+            self.mic_test.start()
+            self.history.test_mic_button.setText("Stop microphone test")
+            self.history.mic_status.setText("Listening for input. This test does not save audio or create a transcript.")
+        except Exception as exc:
+            self.stop_microphone_test()
+            self.history.mic_status.setText(f"Microphone test failed: {exc}")
+
+    def stop_microphone_test(self, *_):
+        microphone, self.mic_test = self.mic_test, None
+        self.history.test_mic_button.setText("Test microphone")
+        self.history.input_meter.reset()
+        self.history.mic_status.setText("The meter lights up while testing or recording.")
+        if microphone:
+            try:
+                microphone.stop()
+            except Exception as exc:
+                self.history.mic_status.setText(f"Could not close the microphone test: {exc}")
+
+    def refresh_microphones(self):
+        self.stop_microphone_test()
+        self.history.refresh_microphones()
+
+    def update_controls(self, message=None):
+        busy = self.recording or self.processing or self.notetaker_active
+        state = "meeting" if self.notetaker_active or (self.processing and self.active_mode == "notetaker") else "recording" if self.recording else "processing" if self.processing else "idle"
+        self.history.capture.set_session(state, message)
+        reminder_recording = self.recording and self.active_mode == "reminder"
+        reminder_busy = (self.recording or self.processing) and self.active_mode == "reminder"
+        if reminder_busy:
+            self.history.capture.title.setText("Listening for a reminder" if self.recording else "Understanding your reminder")
+            self.history.capture.detail.setText(message or ('Say "remind me in an hour to take out the garbage".' if self.recording else "Transcribing your reminder command locally..."))
+            if self.recording:
+                self.history.capture.record_button.setText("Stop and set reminder")
+        self.history.set_capture_busy(busy)
+        self.history.reminders.set_capture_state(reminder_recording, busy)
+        self.record_action.setText("Stop dictation" if self.recording and not reminder_recording else "Start dictation")
+        self.record_action.setEnabled(not self.processing and not self.notetaker_active and not reminder_recording)
+        self.reminder_action.setText("Stop reminder command" if reminder_recording else "Speak a reminder")
+        self.reminder_action.setEnabled(reminder_recording or not busy)
+        self.meeting_action.setEnabled(self.notetaker_active)
+        self.copy_action.setEnabled(bool(self.last_text))
+        label = {"idle": "Ready to dictate", "recording": "Recording dictation", "processing": "Transcribing", "meeting": "Notetaker active"}[state]
+        if reminder_busy:
+            label = "Recording reminder" if self.recording else "Setting reminder"
+        self.tray_status.setText(label)
+        self.tray.setToolTip(f"Neyra · {label}")
+
+    def dashboard_closed(self):
+        self.stop_microphone_test()
+        if not self.closing and (not QSystemTrayIcon.isSystemTrayAvailable() or not self.history.close_to_tray_toggle.isChecked()):
+            self.app.quit()
+
+    def clear_last_transcript(self):
+        self._last_record = None
+        self.last_text = ""
+        self._pending_paste = ""
+        self.paste_timer.stop()
+        self.copy_action.setEnabled(False)
+
+    def transcript_deleted(self, record):
+        if record is self._last_record:
+            self.clear_last_transcript()
+
+    def show_settings(self):
+        self.history.show_page(6)
+        self.show_history()
+
+    def show_reminders(self):
+        self.history.show_page(7)
+        self.show_history()
+
+    @Slot()
+    def start_reminder(self):
+        if not self.recording and not self.processing and not self.notetaker_active:
+            self.start("reminder")
+
+    @Slot()
+    def stop_reminder(self):
+        if self.active_mode == "reminder":
+            self.stop()
+
+    @Slot()
+    def stop_dictation(self):
+        if self.active_mode == "dictation":
+            self.stop()
+
+    def toggle_reminder(self):
+        if self.recording and self.active_mode == "reminder":
+            self.stop_reminder()
+        else:
+            self.start_reminder()
+
+    def toggle_capture(self):
+        self.stop_reminder() if self.recording and self.active_mode == "reminder" else self.toggle()
+
+    @Slot(str)
+    def submit_reminder(self, command, now=None, spoken=False):
+        try:
+            record = self.reminder_store.add(command, now=now)
+        except (ValueError, OSError) as exc:
+            message = f"Reminder not saved. {exc}"
+            self.history.reminders.status.setText(message)
+            self.history.reminders.command.setText(command)
+            if spoken:
+                self.history.status_label.setText("Reminder not saved")
+                self.show_notification("Reminder not saved", str(exc))
+            return False
+        self.history.reminders.refresh(self.reminder_store.records)
+        self.history.reminders.command.clear()
+        message = f"Reminder set for {due_label(record['due_at'])}: {record['text']}"
+        self.history.reminders.status.setText(message)
+        if spoken:
+            self.history.status_label.setText("Reminder set")
+            self.history.capture.detail.setText(message[:400])
+            self.overlay.state = "Reminder set"
+            self.overlay.text = f"{due_label(record['due_at'])} · {record['text']}"
+            self.overlay.show()
+            self.feedback_timer.start(3500)
+        self.check_reminders()
+        return True
+
+    def overlay_feedback_finished(self):
+        if not self.recording and not self.processing and self.overlay.state == "Reminder set":
+            self.overlay.hide()
+
+    @Slot(str)
+    def remove_reminder(self, identity):
+        if self.reminder_store.remove(identity):
+            self.history.reminders.refresh(self.reminder_store.records)
+            self.history.reminders.status.setText("Reminder removed.")
+
+    @Slot()
+    def check_reminders(self):
+        if self.closing:
+            return
+        due = [record for record in self.reminder_store.pending_due() if record["id"] not in self._reminders_in_flight]
+        if not due:
+            return
+        self.history.reminders.status.setText(f"{len(due)} reminder{'s are' if len(due) != 1 else ' is'} due. See Recent reminders below.")
+        identities = [record["id"] for record in due]
+        self._reminders_in_flight.update(identities)
+        acknowledged = lambda: self.reminder_notification_sent(identities)
+        if len(due) == 1:
+            self.show_notification("Neyra reminder", due[0]["text"], on_shown=acknowledged)
+        else:
+            message = "\n".join(record["text"][:200] for record in due[:3])
+            if len(due) > 3:
+                message += "\nOpen Reminders to see all of them."
+            self.show_notification(f"Neyra · {len(due)} reminders due", message, on_shown=acknowledged)
+
+    def reminder_notification_sent(self, identities):
+        if self.closing:
+            return
+        self._reminders_in_flight.difference_update(identities)
+        self.reminder_store.mark_fired(identities)
+        self.history.reminders.refresh(self.reminder_store.records)
+
+    def show_notification(self, title, message, on_shown=None):
+        if self.closing:
+            return
+        if QSystemTrayIcon.isSystemTrayAvailable() and QSystemTrayIcon.supportsMessages():
+            self.tray.showMessage(title, message[:1500], QSystemTrayIcon.MessageIcon.Information, 15000)
+            if on_shown:
+                on_shown()
+            return
+        notifier = shutil.which("notify-send") if sys.platform.startswith("linux") else None
+        if notifier:
+            process = QProcess(self)
+            timer = QTimer(process)
+            timer.setSingleShot(True)
+            timer.timeout.connect(process.kill)
+            def finished(code, status):
+                if code != 0 or status == QProcess.ExitStatus.CrashExit:
+                    self.show_reminder_alert(title, message, on_shown)
+                elif on_shown:
+                    on_shown()
+                process.deleteLater()
+            def failed(error):
+                if error == QProcess.ProcessError.FailedToStart:
+                    self.show_reminder_alert(title, message, on_shown)
+                    process.deleteLater()
+            process.finished.connect(finished)
+            process.errorOccurred.connect(failed)
+            process.start(notifier, ["--app-name=Neyra", "--", title, message[:1500]])
+            timer.start(10000)
+        else:
+            self.show_reminder_alert(title, message, on_shown)
+
+    def show_reminder_alert(self, title, message, on_shown=None):
+        if self.closing:
+            return
+        alert = ReminderAlert(title, message)
+        self.notification_alerts.append(alert)
+        alert.finished.connect(lambda _result: self.notification_alerts.remove(alert))
+        alert.show()
+        if on_shown:
+            on_shown()
 
     @Slot(float)
     def set_level(self, value):
         self.overlay.level = value
+        if self.recording or self.notetaker_active or self.mic_test:
+            self.history.input_meter.set_level(value)
+        if self.recording:
+            self.history.capture.meter.set_level(value)
 
     @Slot()
-    def start(self):
+    def start(self, mode="dictation"):
         if self.closing or self.recording or self.notetaker_active:
             return
         if self.processing:
@@ -633,17 +1179,23 @@ class Assistant(QObject):
             return
         self._pending_paste = ""
         self.paste_timer.stop()
-        self.overlay.state = "Listening"
-        self.overlay.text = "Speak now..."
+        self.feedback_timer.stop()
+        self.stop_microphone_test()
+        self.active_mode = mode
+        self.reminder_command_time = None
+        self._paste_on_complete = mode == "dictation" and not self.history.isActiveWindow()
+        self.overlay.state = "Reminder" if mode == "reminder" else "Listening"
+        self.overlay.text = 'Say "remind me in an hour to..."' if mode == "reminder" else "Speak now..."
         self.overlay.show()
         chunks = queue.Queue()
-        self.recorder = Microphone(chunks, self.level_changed.emit)
         try:
+            self.recorder = self.create_microphone(chunks, self.level_changed.emit)
             self.recorder.start()
             self.recording = True
             self.recording_started = time.monotonic()
             self.history.status_label.setText("Listening...")
-            hints = self.history.dictionary_words() + list(self.history.snippets())
+            self.update_controls()
+            hints = self.history.dictionary_words() + list(self.history.vocabulary_corrections().values()) + list(self.history.snippets())
             self.engine.run(chunks, keywords=hints, model=self.history.engine_choice.currentData())
         except Exception as exc:
             self.error(str(exc))
@@ -653,11 +1205,15 @@ class Assistant(QObject):
         self.overlay.hide()
         if not self.recording: return
         self.recording = False
+        if self.active_mode == "reminder":
+            self.reminder_command_time = time.time()
         self.recording_duration = time.monotonic() - self.recording_started
         self.processing = True
         self.history.status_label.setText("Transcribing...")
         self.overlay.state = "Transcribing"
         self.overlay.hide()
+        self.history.input_meter.reset()
+        self.update_controls()
         try:
             self.recorder.stop()
         except Exception as exc:
@@ -665,6 +1221,8 @@ class Assistant(QObject):
 
     @Slot()
     def toggle(self):
+        if self.recording and self.active_mode != "dictation":
+            return
         if self.recording: self.stop()
         else: self.start()
 
@@ -672,17 +1230,27 @@ class Assistant(QObject):
     def preview(self, text):
         if self.closing:
             return
-        self.history.status_label.setText(text[:95] or "Listening...")
+        self.history.status_label.setText("Listening..." if self.recording else "Processing meeting..." if self.active_mode == "notetaker" else "Transcribing..." if self.processing else "Preparing model...")
+        self.history.status_label.setToolTip(text)
         if self.active_mode == "notetaker":
             self.history.notetaker_status.setText(text or "Transcribing meeting audio...")
         else:
             self.overlay.text = text or "Listening..."
+            if self.recording or self.processing:
+                self.history.capture.detail.setText(text[-400:] or "Listening...")
 
     @Slot(str)
     def complete(self, text):
         if self.closing:
             return
         self.processing = False
+        self.history.input_meter.reset()
+        if self.active_mode == "reminder":
+            self.active_mode = "dictation"
+            self.update_controls()
+            self.submit_reminder(text, now=self.reminder_command_time, spoken=True)
+            return
+        self.update_controls("Your transcript is ready." if text else "No speech detected. Check the microphone meter and try again.")
         self.history.status_label.setText("Ready to dictate" if text else "No speech detected")
         if self.active_mode == "notetaker":
             metadata = dict(self.engine.meeting_result or {})
@@ -695,15 +1263,20 @@ class Assistant(QObject):
             self.history.notetaker.set_recovery(False)
             self.active_mode = "dictation"
             return
+        text = expand_snippets(text, self.history.vocabulary_corrections())
         text = expand_snippets(apply_style(text, self.history.style_choice.currentText()), self.history.snippets())
         self.last_text = text
+        self._last_record = None
+        self.copy_action.setEnabled(bool(text))
         self.overlay.state = "Ready"
         self.overlay.text = text or "No speech detected"
         if text:
-            self.history.add_transcript(text, self.recording_duration)
+            self._last_record = self.history.add_transcript(text, self.recording_duration)
             QApplication.clipboard().setText(text)
-            self._pending_paste = text
-            self.paste_timer.start()
+            self.copy_action.setEnabled(True)
+            if self._paste_on_complete:
+                self._pending_paste = text
+                self.paste_timer.start()
 
     @Slot()
     def paste_when_released(self):
@@ -712,6 +1285,8 @@ class Assistant(QObject):
         self.paste_timer.stop()
         text, self._pending_paste = self._pending_paste, ""
         if text and not self.closing:
+            if self.history.isActiveWindow():
+                return
             try:
                 insert_text(text)
             except Exception as exc:
@@ -721,19 +1296,22 @@ class Assistant(QObject):
         if self.closing or self.notetaker_active or self.recording or self.processing or self._meeting_audio is not None:
             return
         try:
+            self.stop_microphone_test()
             bridge_path()
             self.meeting_options = self.history.notetaker.processing_options()
             self._meeting_capture_warnings = []
             self.notetaker_chunks = queue.Queue()
-            self.notetaker_mic = Microphone(self.notetaker_chunks, lambda value: None)
+            self.notetaker_mic = self.create_microphone(self.notetaker_chunks, self.level_changed.emit)
             self.system_audio = SystemAudioRecorder()
             self.system_audio.start()
             self.notetaker_mic.start()
             self.notetaker_active = True
+            self.update_controls()
             self.history.status_label.setText("Recording meeting...")
             self.history.set_meeting_state("recording", "Recording microphone and computer audio. Stop when your meeting ends.")
         except Exception as exc:
             self.stop_meeting_capture()
+            self.update_controls()
             self.history.set_meeting_state("idle", f"Could not start meeting capture: {exc}")
 
     def discard_meeting(self):
@@ -756,6 +1334,7 @@ class Assistant(QObject):
             chunks.put(None)
             self.processing = True
             self.active_mode = "notetaker"
+            self.update_controls()
             self.history.notetaker.set_recovery(False)
             self.history.set_meeting_state("transcribing", "Processing meeting audio locally...")
             self.history.status_label.setText("Transcribing meeting...")
@@ -781,6 +1360,7 @@ class Assistant(QObject):
             return
         try:
             self.notetaker_active = False
+            self.history.input_meter.reset()
             system, errors = self.stop_meeting_capture()
             mic_chunks = []
             while not self.notetaker_chunks.empty():
@@ -792,6 +1372,8 @@ class Assistant(QObject):
             length = max(len(mic), len(system))
             if not length:
                 self.history.set_meeting_state("idle", "Capture failed: " + "; ".join(errors) if errors else "No meeting audio was captured.")
+                self.history.status_label.setText("No meeting audio captured")
+                self.update_controls()
                 return
             mixed = np.zeros(length, dtype=np.float32)
             if len(mic):
@@ -803,11 +1385,13 @@ class Assistant(QObject):
                 self._meeting_capture_warnings = ["Capture error: " + "; ".join(errors) + ". Some audio may be missing."]
                 self.history.set_meeting_state("idle", self._meeting_capture_warnings[0] + " Available audio is kept for Retry processing.")
                 self.history.notetaker.set_recovery(True)
+                self.update_controls()
             else:
                 self.process_meeting()
         except Exception as exc:
             self.processing = False
             self.active_mode = "dictation"
+            self.update_controls()
             self.history.set_meeting_state("idle", f"Meeting transcription failed: {exc}")
 
     @Slot(str)
@@ -821,6 +1405,12 @@ class Assistant(QObject):
                 message += f"; microphone cleanup: {exc}"
         self.processing = False
         self.recording = False
+        if self.active_mode == "reminder":
+            self.history.reminders.status.setText(f"Reminder not saved. {message}")
+            self.active_mode = "dictation"
+        self.history.input_meter.reset()
+        self.update_controls()
+        self.history.capture.set_session("error", message)
         self.history.status_label.setText(message[:120])
         if self.active_mode == "notetaker":
             self.history.set_meeting_state("idle", f"Meeting transcription failed: {message}")
@@ -855,6 +1445,15 @@ class Assistant(QObject):
         if self.closing:
             return
         self.closing = True
+        self.reminder_timer.stop()
+        self.feedback_timer.stop()
+        for alert in tuple(self.notification_alerts):
+            alert.close()
+        for process in self.findChildren(QProcess):
+            if process.state() != QProcess.ProcessState.NotRunning:
+                process.kill()
+                process.waitForFinished(1000)
+        self.stop_microphone_test()
         self.history.notetaker.timer.stop()
         self.paste_timer.stop()
         if self.recorder:
@@ -869,6 +1468,7 @@ class Assistant(QObject):
             self.hotkeys.stop()
         self.tray.hide()
         self.overlay.hide()
+        self.history.hide()
 
 def main():
     app = QApplication(sys.argv)
@@ -877,6 +1477,8 @@ def main():
     locale.setlocale(locale.LC_NUMERIC, "C")
     app.setQuitOnLastWindowClosed(False)
     controller = Assistant(app)
+    if "--background" not in sys.argv or not QSystemTrayIcon.isSystemTrayAvailable():
+        controller.show_history()
     sys.exit(app.exec())
 
 if __name__ == "__main__":

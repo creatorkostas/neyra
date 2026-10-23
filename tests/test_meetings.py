@@ -271,14 +271,18 @@ class MeetingTests(unittest.TestCase):
     def test_build_excludes_toolchain_installers(self):
         from scripts import build
         with tempfile.TemporaryDirectory() as folder:
-            assets = Path(folder)
+            root = Path(folder)
+            assets = root / "assets"
+            assets.mkdir()
+            (root / "node_modules").mkdir()
             for name in ("model", "engine", "meeting-models", "tools"):
                 (assets / name).mkdir()
-            with patch.object(build, "ASSETS", assets), patch.object(build, "run") as run, patch("neyra.bundled.configure_bundled_runtime"), patch.object(sys, "argv", ["build.py", "--skip-download"]):
+            with patch.object(build, "ROOT", root), patch.object(build, "ASSETS", assets), patch.object(build, "run") as run, patch("neyra.bundled.configure_bundled_runtime"), patch.object(sys, "argv", ["build.py", "--skip-download"]):
                 build.main()
             command = run.call_args.args
-            included = [arg for arg in command if str(arg).startswith("--include-data-dir=")]
-            self.assertEqual(len(included), 3)
+            included = [arg for arg in command if str(arg).startswith(("--include-data-dir=", "--include-raw-dir="))]
+            self.assertEqual({str(arg).rsplit("=", 1)[-1] for arg in included},
+                             {"assets/model", "assets/engine", "assets/meeting-models", "node_modules"})
             self.assertFalse(any("tools" in str(arg) for arg in included))
 
 

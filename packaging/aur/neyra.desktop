@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Neyra
+Comment=Local desktop dictation and meeting transcription
+Exec=neyra
+TryExec=neyra
+Icon=neyra
+Terminal=false
+Categories=AudioVideo;Audio;Utility;
+Keywords=dictation;transcription;speech;meeting;
+StartupNotify=false

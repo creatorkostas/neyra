@@ -29,6 +29,10 @@ QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, SETTING
 class RegressionTests(unittest.TestCase):
     def setUp(self):
         QSettings(QSettings.Format.IniFormat, QSettings.Scope.UserScope, "Neyra", "Neyra").clear()
+        for target in ("neyra.stt.Transcriber.prepare_whistle", "neyra.stt.Transcriber.prepare_voz"):
+            patcher = patch(target)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def make_assistant(self):
         with patch("neyra.hotkeys.Hotkeys.start"), patch("neyra.main.QSystemTrayIcon.show"):

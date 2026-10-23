@@ -44,6 +44,9 @@ def main():
         configure_bundled_runtime()
     is_win = sys.platform == "win32"
     name = "Neyra.exe" if is_win else "Neyra"
+    node_modules = ROOT / "node_modules"
+    if not node_modules.is_dir():
+        raise RuntimeError("Voz dependencies are missing. Run `npm ci` before building.")
     command = [sys.executable, "-m", "nuitka",
         "--standalone" if args.standalone else "--onefile",
         "--enable-plugin=pyside6",
@@ -51,6 +54,7 @@ def main():
         "--include-package=neyra",
         "--include-package-data=soundcard",
         "--include-data-files=neyra/voz_transcribe.mjs=neyra/voz_transcribe.mjs",
+        f"--include-raw-dir={node_modules}=node_modules",
         "--output-dir=dist", f"--output-filename={name}",
         "--assume-yes-for-downloads",
     ]
