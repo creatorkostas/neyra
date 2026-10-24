@@ -15,6 +15,9 @@ from .text_tools import meeting_brief
 from .meeting import meeting_transcript, timestamp, speaker_label
 
 PATHS = {
+    "home": '<path d="m3 10 9-7 9 7v11H3zM9 21v-8h6v8"/>',
+    "notes": '<path d="M5 3h14v18H5zM9 8h6M9 12h6M9 16h4"/>',
+    "brand": '<path d="M3 9v6M7.5 4v16M12 7v10M16.5 2v20M21 10v4"/>',
     "assistant": '<path d="m12 2 2.8 7.2L22 12l-7.2 2.8L12 22l-2.8-7.2L2 12l7.2-2.8z"/>',
     "dictation": '<rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M9 22h6"/>',
     "notetaker": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>',
@@ -38,7 +41,7 @@ PATHS = {
 }
 
 
-def icon(name, size=20, color="#302c34"):
+def icon(name, size=20, color="#1b233c"):
     svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke="{color}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{PATHS[name]}</g></svg>'
     pixmap = QPixmap(size * 2, size * 2)
     pixmap.fill(Qt.GlobalColor.transparent)
@@ -63,88 +66,91 @@ def icon_button(name, tooltip, parent=None):
 
 
 THEME = """
-QDialog { background: #f6f5f2; color: #191819; font-family: 'Segoe UI'; font-size: 14px; }
+QDialog { background: #f5f6f9; color: #171c2d; font-family: 'Segoe UI'; font-size: 14px; }
 QDialog#dashboard { background: transparent; }
-QWidget { color: #191819; font-family: 'Segoe UI'; font-size: 14px; }
+QWidget { color: #171c2d; font-family: 'Segoe UI'; font-size: 14px; }
 QLabel { background: transparent; border: none; }
-QFrame#surface { background: #fdfdfc; border: 1px solid #eae7e1; border-radius: 24px; }
+QFrame#surface { background: #ffffff; border: none; border-top: 1px solid #dde0e7; border-radius: 0; }
 QFrame#sidebar, QWidget#windowBar { background: transparent; border: none; }
-QLabel#heading { font-size: 25px; font-weight: 600; }
-QLabel#brand { font-size: 25px; font-weight: 700; color: #302c34; }
-QLabel#muted { color: #655f59; font-size: 13px; }
-QLabel#dateLabel { color: #777168; font-size: 12px; letter-spacing: 1px; padding: 14px 0; }
-QPushButton { color: #191819; background: #eeece6; border: 1px solid transparent; border-radius: 8px; padding: 8px 13px; }
-QPushButton:hover { background: #e6e3dc; }
-QPushButton:pressed { background: #dcd5e3; }
-QPushButton:disabled { color: #979087; background: #f0eee9; }
-QPushButton:focus { border-color: #7843a5; }
-QPushButton#nav { background: transparent; text-align: left; padding: 8px 10px; }
-QPushButton#nav:checked, QPushButton#nav:hover { background: #eeece5; }
-QPushButton#primary { background: #7843a5; color: white; }
-QPushButton#primary:hover { background: #65368c; }
-QPushButton#primary:pressed { background: #522a75; }
-QPushButton#primary:disabled { color: #756b7d; background: #e8e3ec; }
+QLabel#heading { font-size: 22px; font-weight: 600; }
+QLabel#brand { font-size: 25px; font-weight: 700; color: #1b233c; }
+QLabel#muted { color: #565a6a; font-size: 13px; }
+QLabel#dateLabel { color: #565a6a; font-size: 12px; letter-spacing: 1px; padding: 14px 0; }
+QPushButton { color: #171c2d; background: #ebecf0; border: 1px solid transparent; border-radius: 8px; padding: 8px 13px; }
+QPushButton:hover { background: #dde0e8; }
+QPushButton:pressed { background: #ced3e1; }
+QPushButton:disabled { color: #979087; background: #eeeff2; }
+QPushButton:focus { border-color: #365bd6; }
+QPushButton#nav { background: transparent; text-align: center; padding: 8px 10px; }
+QPushButton#nav:checked, QPushButton#nav:hover { background: #dee2ed; }
+QPushButton#primary { background: #365bd6; color: white; }
+QPushButton#primary:hover { background: #2949ba; }
+QPushButton#primary:pressed { background: #203b97; }
+QPushButton#primary:disabled { color: #646878; background: #e3e5eb; }
 QPushButton#iconButton { background: transparent; padding: 4px; border-radius: 5px; }
-QPushButton#iconButton:hover { background: #ebe8e2; }
+QPushButton#iconButton:hover { background: #e7e9ee; }
 QPushButton::menu-indicator { image: none; width: 0; }
-QFrame#summaryCard, QFrame#promoCard { background: #f6f5f1; border: 1px solid #ece8e0; border-radius: 17px; }
+QFrame#summaryCard, QFrame#promoCard { background: #f3f4f7; border: 1px solid #dde0e7; border-radius: 10px; }
 QFrame#promoCard { background: #fffdf9; border-radius: 12px; }
-QFrame#transcriptRow { background: transparent; border: none; border-bottom: 1px solid #ece9e2; }
-QFrame#transcriptRow:hover { background: #f6f4ef; }
-QFrame#divider { background: #e9e6df; border: none; }
-QFrame#meetingOverview, QFrame#meetingCard, QFrame#meetingEmpty { background: #f6f5f1; border: none; border-radius: 16px; }
-QFrame#meetingIntro { background: #fff8ef; border: 1px solid #f3bf87; border-radius: 12px; }
-QPushButton#meetingStart { background: #ffecd4; color: #211c17; padding: 9px 14px; }
-QPushButton#meetingStart:hover { background: #ffe0b8; }
+QFrame#transcriptRow { background: transparent; border: none; border-bottom: 1px solid #dde0e7; }
+QFrame#transcriptRow:hover { background: #f1f2f6; }
+QFrame#divider { background: #dde0e7; border: none; }
+QFrame#meetingOverview, QFrame#meetingCard, QFrame#meetingEmpty { background: #f3f4f7; border: none; border-radius: 16px; }
+QFrame#meetingIntro { background: #f0f2f7; border: 1px solid #bcc4d9; border-radius: 12px; }
+QPushButton#meetingStart { background: #dee2ed; color: #19223d; padding: 9px 14px; }
+QPushButton#meetingStart:hover { background: #c5cbde; }
 QPushButton#meetingStart:disabled { background: #ede9e2; color: #888078; }
 QPushButton#textButton { background: transparent; padding: 7px; }
-QTabWidget::pane { border: 1px solid #e5e0d7; border-radius: 8px; background: white; }
+QTabWidget::pane { border: 1px solid #dde0e7; border-radius: 8px; background: white; }
 QTabBar::tab { background: transparent; padding: 10px 16px; border-bottom: 2px solid transparent; }
-QTabBar::tab:selected { border-bottom-color: #8037af; }
-QTabBar::tab:focus { background: #eee7f3; }
+QTabBar::tab:selected { border-bottom-color: #365bd6; }
+QTabBar::tab:focus { background: #dee2ed; }
 QScrollArea, QScrollArea > QWidget > QWidget, QStackedWidget { background: transparent; border: none; }
 QScrollBar:vertical { width: 7px; background: transparent; margin: 2px; }
 QScrollBar::handle:vertical { background: #d8d3cb; border-radius: 3px; min-height: 35px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
-QLineEdit, QTextEdit, QComboBox { background: white; color: #191819; border: 1px solid #ded9cf; border-radius: 8px; padding: 10px; selection-background-color: #e7dcef; selection-color: #191819; }
-QLineEdit:focus, QTextEdit:focus { border-color: #7843a5; }
-QTextEdit:read-only { background: #faf9f6; }
-QDateTimeEdit { background: white; color: #191819; border: 1px solid #ded9cf; border-radius: 8px; padding: 8px; min-height: 22px; }
-QDateTimeEdit:focus { border-color: #7843a5; }
+QLineEdit, QTextEdit, QComboBox { background: white; color: #171c2d; border: 1px solid #d3d6e0; border-radius: 8px; padding: 10px; selection-background-color: #ccd2e4; selection-color: #171c2d; }
+QLineEdit:focus, QTextEdit:focus { border-color: #365bd6; }
+QTextEdit:read-only { background: #f6f7f9; }
+QDateTimeEdit { background: white; color: #171c2d; border: 1px solid #d3d6e0; border-radius: 8px; padding: 8px; min-height: 22px; }
+QDateTimeEdit:focus { border-color: #365bd6; }
 QComboBox { padding-right: 38px; min-height: 22px; }
 QComboBox:hover { border-color: #b9b1a6; }
-QComboBox:focus, QComboBox:on { border-color: #9a78b2; }
+QComboBox:focus, QComboBox:on { border-color: #365bd6; }
 QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: top right; width: 34px; border: none; background: transparent; }
 QComboBox::down-arrow { image: none; width: 0; height: 0; border: none; }
-QComboBox QAbstractItemView { background: white; color: #191819; border: 1px solid #ded9cf; border-radius: 8px; padding: 5px; outline: 0; selection-background-color: #eee7f3; selection-color: #191819; }
+QComboBox QAbstractItemView { background: white; color: #171c2d; border: 1px solid #d3d6e0; border-radius: 8px; padding: 5px; outline: 0; selection-background-color: #dee2ed; selection-color: #171c2d; }
 QComboBox QAbstractItemView::item { min-height: 30px; padding: 3px 8px; border: none; border-radius: 4px; }
-QListWidget, QTableWidget { background: #fdfdfc; color: #191819; border: 1px solid #eae6de; border-radius: 9px; outline: 0; }
+QListWidget, QTableWidget { background: #ffffff; color: #171c2d; border: 1px solid #eae6de; border-radius: 9px; outline: 0; }
 QListWidget::item { padding: 14px; border-bottom: 1px solid #eeeae3; }
-QListWidget::item:selected { background: #f0ece4; color: #191819; }
-QHeaderView::section { color: #686057; background: #f3f0e9; border: 0; padding: 10px; }
-QProgressBar { background: #dfdcd5; border: 0; border-radius: 3px; max-height: 6px; min-height: 6px; }
-QProgressBar::chunk { background: #8037af; border-radius: 3px; }
-QMenu { background: white; color: #191819; border: 1px solid #e5e0d7; padding: 5px; }
+QListWidget::item:selected { background: #f0ece4; color: #171c2d; }
+QHeaderView::section { color: #686057; background: #eff0f4; border: 0; padding: 10px; }
+QProgressBar { background: #dbdee7; border: 0; border-radius: 3px; max-height: 6px; min-height: 6px; }
+QProgressBar::chunk { background: #365bd6; border-radius: 3px; }
+QMenu { background: white; color: #171c2d; border: 1px solid #dde0e7; padding: 5px; }
 QMenu::item { padding: 7px 18px; }
 QMenu::item:selected { background: #eeeae2; }
-QFrame#captureCard { background: #282333; border: none; border-radius: 18px; }
-QLabel#captureTitle { color: #faf7ff; font-size: 22px; font-weight: 600; }
-QLabel#captureDetail { color: #c7bfd3; font-size: 12px; }
-QLabel#engineBadge { color: #e4d7fa; background: #44364f; border-radius: 9px; padding: 5px 10px; font-size: 12px; }
-QLabel#engineBadge[state="ready"] { color: #b3efdb; background: #284b42; }
+QFrame#captureCard { background: #f0f2f7; border: none; border-radius: 10px; }
+QLabel#captureTitle { color: #171f37; font-size: 19px; font-weight: 600; }
+QLabel#captureDetail { color: #4d5366; font-size: 12px; }
+QLabel#engineBadge { color: #263256; background: #dbdfea; border-radius: 9px; padding: 5px 10px; font-size: 12px; }
+QLabel#engineBadge[state="ready"] { color: #b9c5e9; background: #2c3248; }
 QLabel#engineBadge[state="error"] { color: #ffc3c7; background: #62363e; }
-QPushButton#recordButton { background: #d9b9fb; color: #292033; font-weight: 600; padding: 12px 22px; border-radius: 12px; }
-QPushButton#recordButton:hover { background: #e7d0ff; }
+QPushButton#recordButton { background: #365bd6; color: #ffffff; font-weight: 600; padding: 12px 22px; border-radius: 12px; }
+QPushButton#recordButton:hover { background: #2949ba; }
 QPushButton#recordButton[recording="true"] { background: #ffd0ca; color: #652b29; }
 QPushButton#recordButton:disabled { background: #4c435a; color: #b6a9c4; }
-QProgressBar#modelProgress { background: #494052; min-height: 4px; max-height: 4px; }
-QProgressBar#modelProgress::chunk { background: #d9b9fb; }
-QFrame#settingsCard { background: #f6f5f1; border: 1px solid #ece8e0; border-radius: 14px; }
+QProgressBar#modelProgress { background: #dde0ea; min-height: 4px; max-height: 4px; }
+QProgressBar#modelProgress::chunk { background: #365bd6; }
+QFrame#settingsCard { background: #f3f4f7; border: 1px solid #dde0e7; border-radius: 14px; }
 QLabel#sectionTitle { font-size: 16px; font-weight: 600; }
-QLabel#settingStatus { color: #655276; font-size: 12px; }
+QLabel#settingStatus { color: #394464; font-size: 12px; }
 QPushButton#danger { color: #a23940; background: #faeaea; }
 QPushButton#danger:hover { background: #f5d9db; }
+QLabel#workspaceTitle { font-size: 30px; font-weight: 600; color: #19223c; }
+QFrame#homeCard { background: white; border: 1px solid #dde0e7; border-radius: 10px; }
+QLabel#homeEntry { color: #454c60; padding: 14px 0; border-bottom: 1px solid #e9eaee; }
 QCheckBox { spacing: 9px; padding: 6px 0; }
 QCheckBox::indicator { width: 17px; height: 17px; }
 """
@@ -186,11 +192,32 @@ class InputMeter(QWidget):
         count = 36
         width = self.width() / count
         for i in range(count):
-            color = "#514959" if self.property("onDark") else "#d9d4df"
+            color = "#4a5165" if self.property("onDark") else "#dadde4"
             if i < round(self.level * count):
-                color = "#e6ab69" if i > 29 else "#5dbb9b"
+                color = "#e6ab69" if i > 29 else "#6679b2"
             painter.setBrush(QColor(color))
             painter.drawRoundedRect(int(i * width), 4, max(2, int(width - 3)), self.height() - 8, 2, 2)
+
+
+class VoiceRing(InputMeter):
+    """A quiet voice indicator driven by real microphone levels."""
+    def __init__(self):
+        super().__init__()
+        self.setMinimumSize(56, 56)
+        self.setMaximumSize(56, 56)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        ring = self.rect().adjusted(7, 7, -7, -7)
+        painter.setPen(QPen(QColor("#d0d5e2"), 4))
+        painter.drawEllipse(ring)
+        painter.setPen(QPen(QColor("#365bd6"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawArc(ring, 90 * 16, -int((30 + self.level * 300) * 16))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#365bd6"))
+        radius = 3 + self.level * 7
+        painter.drawEllipse(self.rect().center(), int(radius), int(radius))
 
 
 class DictationPanel(QFrame):
@@ -201,40 +228,40 @@ class DictationPanel(QFrame):
         super().__init__()
         self.setObjectName("captureCard")
         box = QVBoxLayout(self)
-        box.setContentsMargins(24, 20, 24, 18)
-        box.setSpacing(12)
-        top = QHBoxLayout()
+        box.setContentsMargins(18, 14, 18, 14)
+        box.setSpacing(8)
+        row = QHBoxLayout()
+        self.meter = VoiceRing()
+        row.addWidget(self.meter)
+        text = QVBoxLayout()
         self.title = QLabel("Ready when you are")
         self.title.setObjectName("captureTitle")
-        top.addWidget(self.title, 1)
-        self.model_badge = QLabel("Whistle · Loading")
-        self.model_badge.setObjectName("engineBadge")
-        top.addWidget(self.model_badge)
-        box.addLayout(top)
-        self.detail = QLabel("Hold Ctrl + Win to dictate into another app, or record here.")
+        self.title.setWordWrap(True)
+        text.addWidget(self.title)
+        self.detail = QLabel("Hold Ctrl + Win to capture a thought, or start here.")
         self.detail.setObjectName("captureDetail")
         self.detail.setTextFormat(Qt.TextFormat.PlainText)
         self.detail.setWordWrap(True)
-        box.addWidget(self.detail)
-        row = QHBoxLayout()
+        text.addWidget(self.detail)
+        row.addLayout(text, 1)
         self.record_button = QPushButton("Start dictation")
         self.record_button.setObjectName("recordButton")
         self.record_button.clicked.connect(self.toggle_requested.emit)
         row.addWidget(self.record_button)
-        self.meter = InputMeter()
-        self.meter.setProperty("onDark", True)
-        row.addWidget(self.meter, 1)
-        self.microphone_button = QPushButton("Microphone settings")
-        self.microphone_button.setObjectName("textButton")
-        self.microphone_button.setStyleSheet("color: #d7c6eb;")
+        self.microphone_button = icon_button("settings", "Microphone settings")
         self.microphone_button.clicked.connect(self.settings_requested.emit)
         row.addWidget(self.microphone_button)
         box.addLayout(row)
+        meta = QHBoxLayout()
+        self.model_badge = QLabel("Whistle · Loading")
+        self.model_badge.setObjectName("engineBadge")
+        meta.addWidget(self.model_badge)
         self.model_detail = QLabel("Loading the local model...")
         self.model_detail.setObjectName("captureDetail")
         self.model_detail.setTextFormat(Qt.TextFormat.PlainText)
         self.model_detail.setWordWrap(True)
-        box.addWidget(self.model_detail)
+        meta.addWidget(self.model_detail, 1)
+        box.addLayout(meta)
         self.progress = QProgressBar()
         self.progress.setObjectName("modelProgress")
         self.progress.setTextVisible(False)
@@ -318,7 +345,7 @@ class NotetakerPanel(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(24)
         header = QHBoxLayout()
-        title = QLabel("Notetaker")
+        title = QLabel("Meeting notes")
         title.setObjectName("heading")
         header.addWidget(title)
         header.addStretch()
@@ -700,7 +727,7 @@ class TranscriptFeed(QScrollArea):
             box.setContentsMargins(30, 70, 30, 60)
             box.setSpacing(15)
             mic = QLabel()
-            mic.setPixmap(icon("dictation", 46, "#8037af").pixmap(46, 46))
+            mic.setPixmap(icon("dictation", 46, "#365bd6").pixmap(46, 46))
             box.addWidget(mic, 0, Qt.AlignmentFlag.AlignHCenter)
             title = QLabel("No matching transcriptions" if self.query else "Your voice, put into words")
             title.setAlignment(Qt.AlignmentFlag.AlignCenter)

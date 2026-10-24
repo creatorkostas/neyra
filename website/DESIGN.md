@@ -1,69 +1,40 @@
----
-name: Neyra website
-description: A static download and product guide extending the desktop identity.
-colors:
-  paper: "#f5f2eb"
-  ink: "#29232f"
-  muted: "#625d66"
-  purple: "#7843a5"
-  dark: "#2a2234"
-  mint: "#a8e0ca"
-typography:
-  display:
-    fontFamily: "Manrope, Arial, sans-serif"
-    fontSize: "clamp(54px, 6.5vw, 92px)"
-    fontWeight: 750
-    lineHeight: 1.07
-    letterSpacing: "-0.04em"
-  body:
-    fontFamily: "Manrope, Arial, sans-serif"
-    fontSize: "16px"
-    fontWeight: 450
-    lineHeight: 1.65
-rounded:
-  media: "14px"
-  button: "8px"
-spacing:
-  small: "8px"
-  medium: "24px"
-  section: "80px"
-components:
-  button-primary:
-    backgroundColor: "{colors.purple}"
-    textColor: "#ffffff"
-    rounded: "{rounded.button}"
-    padding: "13px 23px"
----
+# Neyra workspace identity
 
-# Neyra website design
-
-The landing page extends the existing desktop identity: warm off-white surfaces,
-purple actions, dark violet recording controls, and mint voice activity. Product
-copy names what the app does and distinguishes development previews from releases.
+Neyra is a personal voice workspace. The message is "Capture a thought.
+Remember what matters." The app and static website share a rounded waveform mark, cool
+white surfaces, cool blue actions, and compact navigation.
 
 ## Tokens
 
-- Background: `#f5f2eb`; foreground: `#29232f`; secondary text: `#625d66`.
-- Primary action: `#7843a5`; preview section: `#eee7f2`.
-- Recording surface: `#2a2234`; waveform mint: `#a8e0ca`.
-- Dividers: `#d9d3d9`; media radius: `14px`; button radius: `8px`.
-- Type: self-hosted Manrope, weights 450–800. Hero display caps at 92px;
-  body text is 16px with 1.65 line height. Tracking stops at -0.04em.
+- Background: `#f5f6f9`; foreground: `#171e31`; secondary text: `#53596b`.
+- Primary action: `#365bd6`; quiet surface: `#e6e9f1`; border: `#d7dae3`.
+- Voice indicator: deep blue `#171f37` with pale blue `#9dacda`.
+- Media radius: 10px; buttons: 8px. Avoid a large rounded container around the app.
+- Website type: self-hosted Manrope. Body text is 16px with 1.65 line height.
+  The display title caps at 74px and wraps naturally.
 
-## Structure
+## Structure and behavior
 
-The first view shows the dictation mechanism, download action, and a text-only
-interactive demonstration. Later sections explain the shortcut, show an actual
-development screenshot, list assistant workflows, set honest expectations, offer
-platform downloads, and answer practical setup questions.
+The website leads with the purpose, downloads, and an illustrative note preview.
+The ring appears before the resulting note to explain the voice-to-text flow.
+The real Home screenshot uses synthetic content and carries a development label.
+Later sections cover assistant workflows, limitations, downloads, and setup.
 
-Desktop sections use paired columns and editorial feature rows. Below 720px they
-stack in reading order. Controls retain keyboard focus rings. Native details
-elements handle FAQ disclosure. The demonstration is the page's only animation;
-reduced-motion users see its completed text immediately.
+The app uses top navigation for Home, Notes, Reminders, and Assistant. Home
+shows capture, recent notes, and upcoming reminders. Voice settings groups
+dictionary, snippets, formatting, microphone, models, and usage.
+
+The ring responds to real microphone levels in the app. It has no idle loop.
+The website ring animates only during a requested text preview, and stops when
+the tab is hidden. Keyboard and reduced-motion activation complete immediately.
+Pointer press feedback is subtle. Focus states keep their geometry stable.
 
 ## Maintenance
 
-Preserve preview labels until a release contains those features. Keep release
-links usable independently of the API lookup. Do not add build tooling to the
-static page. Scope these decisions to `website/`, not the PySide6 app.
+Keep keyboard focus visible and touch controls at least 44px tall on the site.
+Check the site at 320px, 390px, and desktop widths. Check desktop pages at
+1000×640 and 1340×840 with long device names and account labels.
+
+Preserve development labels until releases include the shown features. The
+site requests no microphone access. Keep it static and keep downloads usable
+when the release API cannot be reached.

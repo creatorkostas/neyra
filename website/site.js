@@ -5,12 +5,12 @@ const button = document.querySelector("#demo-button");
 const text = document.querySelector("#demo-text");
 const state = document.querySelector("#demo-state");
 const announcement = document.querySelector("#demo-announcement");
-const example = "A quick thought.\nA message to send.\nOne less thing to type.";
+const example = "The launch is on Friday.\nSend the slides tomorrow.\nKeep the next step in sight.";
 
 button.addEventListener("click", event => {
   button.disabled = true;
   demo.classList.add("is-playing");
-  state.textContent = "Turning words into text";
+  state.textContent = "Previewing your note";
   text.textContent = "";
   let position = 0;
   let timer;
@@ -19,7 +19,7 @@ button.addEventListener("click", event => {
     document.removeEventListener("visibilitychange", onVisibilityChange);
     text.textContent = example;
     demo.classList.remove("is-playing");
-    state.textContent = "Your text is ready";
+    state.textContent = "Your note is ready";
     button.disabled = false;
     announcement.textContent = "Preview complete. This demonstration did not use your microphone.";
   };

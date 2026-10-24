@@ -1,8 +1,13 @@
-# Neyra — Local Desktop Voice Assistant (MVP)
+# Neyra — Your personal voice workspace
 
 A local dictation dashboard and floating recording overlay for Windows 10/11, Linux, and Apple silicon Macs. Cactus Whistle recognizes English and streams live previews about once per second. Desert Ant Voz supports 25 languages and produces its transcript after recording stops. Both engines run on your CPU. X11 has the best Linux shortcut support; see the Wayland limitations below.
 
 ## Current state
+
+Neyra opens to **Home**, with a compact capture bar, recent notes, upcoming
+reminders, and quick actions. **Notes** contains dictations and meeting notes.
+**Reminders** and **Assistant** have their own tabs. Open **Voice settings** for
+microphone and model choices, Dictionary, Snippets, Formatting, and Usage.
 
 Neyra is a useful local speech-to-text tool in an early state. Its default Needle Whistle model is small and uses very little RAM. Transcription results are usable, but not exceptional.
 
@@ -27,13 +32,13 @@ To enable the optional Voz engine, install Node.js 20 or newer, then install its
 npm install
 ```
 
-In **Settings**, choose **Whistle** for live text or **Voz** for a final transcript after recording stops. Selecting an engine loads its model in the background. Voz downloads about 400 MB on first use and caches the files locally. Its loaded model uses about 1.2 GB of RAM and at most four inference threads. Neyra keeps loaded models in memory until you quit.
+In **Voice settings**, choose **Whistle** for live text or **Voz** for a final transcript after recording stops. Selecting an engine loads its model in the background. Voz downloads about 400 MB on first use and caches the files locally. Its loaded model uses about 1.2 GB of RAM and at most four inference threads. Neyra keeps loaded models in memory until you quit.
 
-The Dictation panel shows loading, downloading, ready, transcribing, and error states. Voz download progress shows the current file's bytes and percentage when its size is available. To retry a failed load, use **Settings → Load / retry model**. Recorded audio is not sent to a server. Packaged builds include the Voz npm dependencies, including the platform's ONNX runtime. Install Node.js 20 or newer separately to use Voz.
+The Home capture bar shows loading, downloading, ready, transcribing, and error states. Voz download progress shows the current file's bytes and percentage when its size is available. To retry a failed load, use **Voice settings → Load / retry model**. Recorded audio is not sent to a server. Packaged builds include the Voz npm dependencies, including the platform's ONNX runtime. Install Node.js 20 or newer separately to use Voz.
 
 ## Set up dictation
 
-1. Open **Settings → Microphone** and select an input, or use **System default**. The same choice applies to Notetaker.
+1. Open **Voice settings → Microphone** and select an input, or use **System default**. The same choice applies to Notetaker.
 2. Click **Test microphone** and speak. The meter shows the input level; the test does not save audio. Stop the test when finished. Changing pages, closing the window, or starting a recording also stops the test.
 3. Choose a speech model. Whistle starts loading when Neyra opens; selecting Voz starts its first download or loads its cached model.
 4. Hold **Ctrl + Win** while another app has focus, then release to transcribe and paste. You can also use **Start dictation** on the dashboard. Dashboard recordings copy their result and appear in history without pasting back into Neyra.
@@ -44,11 +49,11 @@ If a selected microphone is disconnected, Neyra asks you to choose another input
 
 **Dictionary** stores recognition hints for Whistle. Voz does not support these hints. Under **Vocabulary corrections**, enter a misheard phrase and its intended spelling, then click **Save correction**. Corrections match whole words or phrases without case sensitivity and apply to new dictations from either engine. Select an existing row to update it or remove it. Corrections run before output formatting and snippet expansion. They do not change meeting words or timestamps.
 
-Dictation history stays on this computer and retains the latest 500 entries. Search the feed, copy an entry, or delete it from its menu. **Clear history** asks for confirmation and removes saved dictations. Meeting notes are separate. Under **Settings → Local history**, turn off **Save new dictations to history** to stop saving new entries. Results still copy to your clipboard; this setting does not delete existing history or clear the system clipboard.
+Dictation history stays on this computer and retains the latest 500 entries. Search the feed, copy an entry, or delete it from its menu. **Clear history** asks for confirmation and removes saved dictations. Meeting notes are separate. Under **Voice settings → Local history**, turn off **Save new dictations to history** to stop saving new entries. Results still copy to your clipboard; this setting does not delete existing history or clear the system clipboard.
 
 ## Keep Neyra available
 
-Enable **Settings → Start Neyra at login** to create a per-user startup entry. Windows uses Neyra's value in the current user's Run registry key; Linux uses `$XDG_CONFIG_HOME/autostart/neyra.desktop`, or `~/.config/autostart/neyra.desktop`. Turn the option off to remove Neyra's entry. Keep the app at the same location, or toggle the option off and on after moving it.
+Enable **Voice settings → Start Neyra at login** to create a per-user startup entry. Windows uses Neyra's value in the current user's Run registry key; Linux uses `$XDG_CONFIG_HOME/autostart/neyra.desktop`, or `~/.config/autostart/neyra.desktop`. Turn the option off to remove Neyra's entry. Keep the app at the same location, or toggle the option off and on after moving it.
 
 Normal launches open the dashboard. Login startup passes `--background` to open in the tray. If the desktop has no tray, Neyra opens the dashboard and closing it quits the app. With a tray available, **Keep running in the tray when I close the window** controls closing behavior. The tray menu shows recording state and offers dictation controls, Stop Notetaker, Copy last transcript, Settings, and Quit. Quit stops audio capture and closes the inference runtimes.
 
@@ -157,7 +162,7 @@ uv run python scripts/setup_meeting_models.py
 
 The helper uses the Desert Ant Swift SDK for Windows support. See [meeting runtime setup](runtime/meeting-models/README.md) for the Swift toolchain, C++ tools, and build options. The executable and its runtime libraries belong in `assets/meeting-models`. Set `NEYRA_MEETING_MODELS` to an absolute executable path to use another location.
 
-On the **Notetaker** page:
+Under **Notes → Meetings**:
 
 - Enable **Speaker labels** to label turns with Who. Labels are numbers, not identified names. Overlapping turns can show multiple speakers.
 - Enable **Clean audio** to run Clear before transcription. Clear reduces noise and echo, but also suppresses music and other non-speech sound.

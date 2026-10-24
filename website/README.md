@@ -28,7 +28,7 @@ The release API adds the latest version label. Download links work without
 JavaScript or if that API request fails. They point to the Windows, Linux, and
 Apple silicon macOS release asset names, not files committed into this website.
 
-The assistant screenshot is a real development UI capture with illustrative
+The Home screenshot is a real development UI capture with illustrative
 content. It is labeled as a preview because release binaries can lag behind
 development. Update the preview and release copy as features are published.
 

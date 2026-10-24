@@ -10,6 +10,11 @@ state, the tray, hotkeys, and shutdown. The dashboard and floating overlay run
 on the Qt GUI thread. Audio capture and inference run in workers and report
 results through queues and Qt signals.
 
+`home_ui.py` presents the Home overview and emits navigation and action signals.
+The existing controllers handle recording and reminders. The top navigation
+groups dictation history and meetings under Notes, and speech preferences under
+Voice settings. Home refreshes when notes or reminder delivery state changes.
+
 Dictation flows from `audio.py` into `stt.py`, through local text formatting in
 `text_tools.py`, and then into history and clipboard output. `desktop.py`
 handles pasting into the focused application. Reminder and assistant recording

@@ -1,6 +1,5 @@
 import locale
 import sys
-import math
 import queue
 import json
 import time
@@ -22,6 +21,7 @@ from .reminders import ReminderStore
 from .reminders_ui import RemindersPanel, ReminderAlert, due_label
 from .assistant_ui import AssistantPanel
 from .assistant_features import AssistantFeatures
+from .home_ui import HomePanel
 
 
 def load_setting(settings, key, expected, default):
@@ -73,7 +73,6 @@ class Overlay(QWidget):
         self.move(90, 90)
         self.drag_offset = QPoint()
         self.level = 0.0
-        self.phase = 0.0
         self.state = "Ready"
         self.text = "Hold Ctrl+Win to dictate"
         self.tick = QTimer(self)
@@ -89,7 +88,6 @@ class Overlay(QWidget):
         super().hideEvent(event)
 
     def animate(self):
-        self.phase += 0.14
         self.level *= 0.89
         self.update()
 
@@ -97,17 +95,17 @@ class Overlay(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(32, 24, 49, 245))
-        p.drawRoundedRect(self.rect().adjusted(4, 4, -4, -4), 20, 20)
-        p.setPen(QColor("#c9b8ec"))
-        p.drawText(20, 26, f"NEYRA   •   {self.state}")
-        for i in range(72):
-            x = 20 + i * 5.15
-            amp = min(1.0, self.level * 9.0)
-            h = 4 + amp * (8 + abs(math.sin(i * 0.46 + self.phase) * math.cos(i * .16)) * 28)
-            p.setPen(QPen(QColor("#8be0c8" if i < 25 else "#b68aff"), 2.6))
-            p.drawLine(int(x), int(66-h/2), int(x), int(66+h/2))
-        p.setPen(QColor("#d5c4f3"))
+        p.setBrush(QColor(24, 31, 55, 248))
+        p.drawRoundedRect(self.rect().adjusted(4, 4, -4, -4), 12, 12)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor("#303954"), 5))
+        p.drawEllipse(24, 36, 48, 48)
+        p.setPen(QPen(QColor("#93a4d7"), 5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawArc(24, 36, 48, 48, 90 * 16, -int((40 + min(1.0, self.level * 9) * 290) * 16))
+        p.setPen(QColor("#d9dff2"))
+        p.drawText(94, 44, "NEYRA")
+        p.drawText(94, 70, self.state)
+        p.setPen(QColor("#c4c9d8"))
         fm = p.fontMetrics()
         p.drawText(20, 105, fm.elidedText(self.text, Qt.TextElideMode.ElideLeft, 370))
 
@@ -130,7 +128,7 @@ class HistoryDashboard(QDialog):
         super().__init__()
         self.setObjectName("dashboard")
         self.setWindowTitle("Neyra")
-        self.setWindowIcon(icon("wave"))
+        self.setWindowIcon(icon("brand"))
         self.resize(1340, 840)
         self.setMinimumSize(1000, 640)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
@@ -149,8 +147,7 @@ class HistoryDashboard(QDialog):
         bar.setFixedHeight(44)
         bar_layout = QHBoxLayout(bar)
         bar_layout.setContentsMargins(14, 2, 8, 2)
-        sidebar_toggle = icon_button("sidebar", "Toggle sidebar")
-        bar_layout.addWidget(sidebar_toggle)
+        bar_layout.addWidget(QLabel("NEYRA / YOUR VOICE WORKSPACE"))
         bar_layout.addStretch()
         self.status_label = QLabel("Ready to dictate")
         self.status_label.setObjectName("muted")
@@ -167,28 +164,26 @@ class HistoryDashboard(QDialog):
             bar_layout.addWidget(button)
         bar.mousePressEvent = self.begin_window_drag
         root.addWidget(bar)
-        main = QHBoxLayout()
+        main = QVBoxLayout()
         main.setSpacing(0)
         root.addLayout(main, 1)
         self.sidebar = QFrame()
         self.sidebar.setObjectName("sidebar")
-        self.sidebar.setFixedWidth(214)
-        sidebar_toggle.clicked.connect(lambda: self.sidebar.setVisible(not self.sidebar.isVisible()))
-        side = QVBoxLayout(self.sidebar)
-        side.setContentsMargins(12, 18, 12, 8)
-        side.setSpacing(4)
+        side = QHBoxLayout(self.sidebar)
+        side.setContentsMargins(24, 8, 24, 12)
+        side.setSpacing(10)
         brand_row = QHBoxLayout()
         mark = QLabel()
-        mark.setPixmap(icon("wave", 28).pixmap(28, 28))
+        mark.setPixmap(icon("brand", 28, "#365bd6").pixmap(28, 28))
         brand_row.addWidget(mark)
         brand = QLabel("Neyra")
         brand.setObjectName("brand")
         brand_row.addWidget(brand)
         brand_row.addStretch()
         side.addLayout(brand_row)
-        side.addSpacing(23)
+        side.addSpacing(28)
         self.nav_buttons = {}
-        for index, name in ((0, "Dictation"), (8, "Assistant"), (1, "Notetaker"), (7, "Reminders"), (2, "Insights"), (3, "Dictionary"), (4, "Snippets"), (5, "Style")):
+        for index, name in ((9, "Home"), (0, "Notes"), (7, "Reminders"), (8, "Assistant")):
             button = QPushButton(name)
             button.setObjectName("nav")
             button.setIcon(icon(name.lower()))
@@ -198,35 +193,14 @@ class HistoryDashboard(QDialog):
             button.clicked.connect(lambda checked=False, page=index: self.show_page(page))
             side.addWidget(button)
             self.nav_buttons[index] = button
-        self.nav_buttons[0].setChecked(True)
+        self.nav_buttons[9].setChecked(True)
         side.addStretch(1)
-        promo = QFrame()
-        self.promo = promo
-        promo.setObjectName("promoCard")
-        promo_layout = QVBoxLayout(promo)
-        promo_layout.setContentsMargins(12, 14, 12, 12)
-        graphic = QLabel()
-        graphic.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        graphic.setPixmap(icon("notetaker", 52, "#8037af").pixmap(52, 52))
-        graphic.setStyleSheet("background: #f4e6d7; border-radius: 9px; padding: 18px;")
-        promo_layout.addWidget(graphic)
-        promo_layout.addWidget(QLabel("Explore Notetaker"))
-        description = QLabel("Keep a transcript, summary and next steps for your meetings.")
-        description.setObjectName("muted")
-        description.setWordWrap(True)
-        promo_layout.addWidget(description)
-        explore = QPushButton("Open Notetaker")
-        explore.setObjectName("primary")
-        explore.clicked.connect(lambda: self.show_page(1))
-        promo_layout.addWidget(explore)
-        side.addWidget(promo)
-        side.addSpacing(14)
-        for name, callback in (("Settings", lambda: self.show_page(6)), ("Help", self.show_help)):
+        for name, callback in (("Voice settings", lambda: self.show_page(6)), ("Help", self.show_help)):
             button = QPushButton(name)
             button.setObjectName("nav")
-            button.setIcon(icon(name.lower()))
+            button.setIcon(icon("settings" if name == "Voice settings" else "help"))
             button.clicked.connect(callback)
-            if name == "Settings":
+            if name == "Voice settings":
                 button.setCheckable(True)
                 self.nav_buttons[6] = button
             side.addWidget(button)
@@ -239,6 +213,20 @@ class HistoryDashboard(QDialog):
         self.heading = QLabel("Dictation")
         self.heading.setObjectName("heading")
         body.addWidget(self.heading)
+        self.context_nav = QWidget()
+        context = QHBoxLayout(self.context_nav)
+        context.setContentsMargins(0, 0, 0, 0)
+        self.context_buttons = {}
+        for page, title in ((0, "Dictations"), (1, "Meetings"), (6, "Microphone / models"),
+                            (3, "Dictionary"), (4, "Snippets"), (5, "Formatting"), (2, "Usage")):
+            button = QPushButton(title)
+            button.setObjectName("nav")
+            button.setCheckable(True)
+            button.clicked.connect(lambda _=False, index=page: self.show_page(index))
+            context.addWidget(button)
+            self.context_buttons[page] = button
+        context.addStretch()
+        body.addWidget(self.context_nav)
         self.pages = QStackedWidget()
         body.addWidget(self.pages, 1)
         main.addWidget(content, 1)
@@ -283,7 +271,7 @@ class HistoryDashboard(QDialog):
         columns.addLayout(feed, 1)
         summary = QFrame()
         summary.setObjectName("summaryCard")
-        summary.setFixedWidth(250)
+        summary.setMaximumWidth(560)
         stats = QVBoxLayout(summary)
         stats.setContentsMargins(24, 24, 24, 25)
         stats.setSpacing(14)
@@ -313,7 +301,6 @@ class HistoryDashboard(QDialog):
         self.words_goal.setObjectName("muted")
         stats.addWidget(self.words_goal)
         self.summary_card = summary
-        columns.addWidget(summary, 0, Qt.AlignmentFlag.AlignTop)
         dictation_layout.addLayout(columns, 1)
         self.pages.addWidget(dictation)
 
@@ -343,7 +330,8 @@ class HistoryDashboard(QDialog):
         self.insights_streak = QLabel()
         for label in (self.insights_words, self.insights_count, self.insights_streak):
             label.setStyleSheet("font-size: 22px; padding: 14px;")
-            insights_layout.addWidget(label)
+            label.hide()
+        insights_layout.addWidget(self.summary_card)
         insights_layout.addStretch()
         self.pages.addWidget(insights)
 
@@ -441,9 +429,19 @@ class HistoryDashboard(QDialog):
         self.pages.addWidget(self.reminders)
         self.assistant_panel = AssistantPanel()
         self.pages.addWidget(self.assistant_panel)
+        self.home_reminders = []
+        self.home = HomePanel(self.capture)
+        self.pages.addWidget(self.home)
+        self.home.navigate.connect(self.show_page)
+        self.home.remind.connect(self.speak_home_reminder)
+        self.home.meeting.connect(self.start_home_meeting)
+        self.home.ask_notes.connect(self.open_note_question)
+        self.reminders.records_changed.connect(self.refresh_home)
 
         self.items.refresh(self.records)
         self.update_stats()
+        self.show_page(9)
+        self.capture.record_button.setFocus()
         for button in self.findChildren(QPushButton):
             button.setAutoDefault(False)
         for field in self.findChildren(QLineEdit):
@@ -625,18 +623,39 @@ class HistoryDashboard(QDialog):
     def show_page(self, index):
         self.pages.setCurrentIndex(index)
         self.heading.setVisible(index != 1)
-        self.heading.setText(("Dictation", "Notetaker", "Insights", "Dictionary", "Snippets", "Output style", "Settings", "Reminders", "Assistant")[index])
+        self.heading.setText(("Notes", "Meeting notes", "Usage", "Dictionary", "Snippets", "Formatting", "Voice settings", "Reminders", "Assistant", "Home")[index])
+        group = 0 if index in (0, 1) else 6 if index in (2, 3, 4, 5, 6) else index
         for i, button in self.nav_buttons.items():
-            button.setChecked(i == index)
+            button.setChecked(i == group)
+        self.context_nav.setVisible(group in (0, 6))
+        for page, button in self.context_buttons.items():
+            button.setVisible((page in (0, 1)) if group == 0 else page in (2, 3, 4, 5, 6))
+            button.setChecked(page == index)
+        if index == 9:
+            self.refresh_home()
+
+    def open_note_question(self):
+        self.show_page(8)
+        self.assistant_panel.tabs.setCurrentIndex(2)
+        self.assistant_panel.question.setFocus()
+
+    def speak_home_reminder(self):
+        self.show_page(7)
+        self.reminders.speak_requested.emit()
+
+    def start_home_meeting(self):
+        self.show_page(1)
+        self.notetaker_start.emit()
+
+    def refresh_home(self, reminders=None):
+        if reminders is not None:
+            self.home_reminders = list(reminders)
+        self.home.refresh(self.records, self.meeting_records, self.home_reminders)
 
     def toggle_maximized(self):
         self.showNormal() if self.isMaximized() else self.showMaximized()
 
     def resizeEvent(self, event):
-        if hasattr(self, "promo"):
-            self.promo.setVisible(self.height() >= 770)
-        if hasattr(self, "summary_card"):
-            self.summary_card.setVisible(self.width() >= 1220)
         super().resizeEvent(event)
 
     def search_history(self, text):
@@ -699,6 +718,7 @@ class HistoryDashboard(QDialog):
 
     def save_meetings(self):
         self.settings.setValue("meetings", json.dumps(self.meeting_records))
+        self.refresh_home()
 
     def add_meeting(self, text, metadata=None):
         record = dict(metadata or {})
@@ -708,11 +728,13 @@ class HistoryDashboard(QDialog):
         self.settings.setValue("meetings", json.dumps(self.meeting_records))
         self.notetaker.records = self.meeting_records
         self.notetaker.refresh()
+        self.refresh_home()
 
     def delete_meeting(self, record):
         self.meeting_records.remove(record)
         self.settings.setValue("meetings", json.dumps(self.meeting_records))
         self.notetaker.refresh()
+        self.refresh_home()
 
     def set_meeting_state(self, state, message=None):
         self.notetaker.set_state(state, message)
@@ -720,8 +742,8 @@ class HistoryDashboard(QDialog):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor("#e8e5de"), 1))
-        painter.setBrush(QColor("#f6f5f2"))
+        painter.setPen(QPen(QColor("#dde0e7"), 1))
+        painter.setBrush(QColor("#f5f6f9"))
         radius = 0 if self.isMaximized() else 10
         painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), radius, radius)
 
@@ -752,6 +774,7 @@ class HistoryDashboard(QDialog):
         self.insights_words.setText(f"{total_words:,} total words")
         self.insights_count.setText(f"{len(self.records)} dictations")
         self.insights_streak.setText(f"{streak} day streak")
+        self.refresh_home()
 
     def dictionary_words(self):
         return [value for value in load_setting(self.settings, "dictionary", list, []) if isinstance(value, str)]
@@ -905,7 +928,7 @@ class Assistant(QObject):
         self.history.notetaker.discard_requested.connect(self.discard_meeting)
         self.assistant_features = AssistantFeatures(self)
         self.history.notetaker.followups_requested.connect(self.assistant_features.show_followups)
-        self.tray = QSystemTrayIcon(icon("wave"), app)
+        self.tray = QSystemTrayIcon(icon("brand"), app)
         menu = self.tray_menu = QMenu()
         self.tray_status = menu.addAction("Ready to dictate")
         self.tray_status.setEnabled(False)

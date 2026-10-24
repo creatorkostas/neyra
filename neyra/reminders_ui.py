@@ -13,6 +13,7 @@ def due_label(timestamp):
 
 
 class RemindersPanel(QWidget):
+    records_changed = Signal(object)
     speak_requested = Signal()
     command_submitted = Signal(str)
     remove_requested = Signal(str)
@@ -127,6 +128,7 @@ class RemindersPanel(QWidget):
         if old:
             old.deleteLater()
         self.feed.verticalScrollBar().setValue(scroll)
+        self.records_changed.emit(records)
 
 
 class ReminderAlert(QDialog):

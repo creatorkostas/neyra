@@ -23,6 +23,10 @@ the page should focus on downloads and a feature guide, matching the app's look.
 
 ## Product truth
 
+The visual identity is a personal voice workspace: cool white surfaces, deep
+blue actions, compact top navigation, and a voice indicator that responds to voice levels.
+The main message is "Capture a thought. Remember what matters."
+
 - Default Whistle recognition is local, English, and uses a small model.
 - Its current results are useful but not exceptional. It is an early project.
 - Voz is optional and requires Node.js. Linux integration varies by desktop. The Apple silicon macOS build is planned for the next tagged release, is unsigned, and requires approving first launch in Privacy & Security.
