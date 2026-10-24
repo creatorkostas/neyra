@@ -2,7 +2,7 @@
 from datetime import datetime
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
     QScrollArea, QVBoxLayout, QWidget,
 )
 from .ui import THEME, icon
@@ -17,6 +17,8 @@ class RemindersPanel(QWidget):
     speak_requested = Signal()
     command_submitted = Signal(str)
     remove_requested = Signal(str)
+    snooze_requested = Signal(str, str)
+    done_requested = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -38,9 +40,9 @@ class RemindersPanel(QWidget):
         self.speak_button.clicked.connect(self.speak_requested.emit)
         header.addWidget(self.speak_button)
         box.addLayout(header)
-        hint = QLabel('Hold Ctrl + Alt + Space and say "remind me in an hour to take out the garbage". Release to save it.')
-        hint.setWordWrap(True)
-        box.addWidget(hint)
+        self.shortcut_hint = QLabel('Say "remind me in an hour to take out the garbage", or type it below.')
+        self.shortcut_hint.setWordWrap(True)
+        box.addWidget(self.shortcut_hint)
         command_row = QHBoxLayout()
         self.command = QLineEdit()
         self.command.setPlaceholderText("Remind me in twenty-five minutes to check the oven")
@@ -84,6 +86,7 @@ class RemindersPanel(QWidget):
     def refresh(self, records):
         pending = sorted((r for r in records if r["status"] == "pending"), key=lambda r: r["due_at"])
         fired = sorted((r for r in records if r["status"] == "fired"), key=lambda r: r["due_at"], reverse=True)
+        done = sorted((r for r in records if r["status"] == "done"), key=lambda r: r["due_at"], reverse=True)
         self.count.setText(f"{len(pending)} upcoming reminder{'s' if len(pending) != 1 else ''}")
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -94,7 +97,7 @@ class RemindersPanel(QWidget):
             empty.setObjectName("muted")
             empty.setWordWrap(True)
             layout.addWidget(empty)
-        for title, group in (("Upcoming", pending), ("Recent reminders", fired)):
+        for title, group in (("Upcoming", pending), ("Recent reminders", fired), ("Done", done)):
             if not group:
                 continue
             section = QLabel(title)
@@ -110,11 +113,31 @@ class RemindersPanel(QWidget):
                 task.setTextFormat(Qt.TextFormat.PlainText)
                 task.setWordWrap(True)
                 task.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                if record["status"] == "done":
+                    font = task.font()
+                    font.setStrikeOut(True)
+                    task.setFont(font)
                 text.addWidget(task)
-                when = QLabel(("Due " if record["status"] == "fired" else "Scheduled for ") + due_label(record["due_at"]))
+                prefix = {"pending": "Scheduled for ", "fired": "Due ", "done": "Done · scheduled for "}
+                when = QLabel(prefix[record["status"]] + due_label(record["due_at"]))
                 when.setObjectName("muted")
+                when.setWordWrap(True)
                 text.addWidget(when)
                 cells.addLayout(text, 1)
+                if record["status"] != "done":
+                    actions = QPushButton("Actions")
+                    actions.setAccessibleName(f"Actions for reminder: {record['text']}")
+                    actions.setAutoDefault(False)
+                    menu = QMenu(actions)
+                    for label, preset in (("Snooze 10 minutes", "10min"), ("Tomorrow 9AM", "tomorrow")):
+                        action = menu.addAction(label)
+                        action.triggered.connect(lambda _checked=False, identity=record["id"], preset=preset:
+                                                 self.snooze_requested.emit(identity, preset))
+                    menu.addSeparator()
+                    action = menu.addAction("Mark done")
+                    action.triggered.connect(lambda _checked=False, identity=record["id"]: self.done_requested.emit(identity))
+                    actions.setMenu(menu)
+                    cells.addWidget(actions)
                 remove = QPushButton("Cancel" if record["status"] == "pending" else "Dismiss")
                 remove.setAccessibleName(f"{remove.text()} reminder: {record['text']}")
                 remove.setAutoDefault(False)
@@ -132,6 +155,7 @@ class RemindersPanel(QWidget):
 
 
 class ReminderAlert(QDialog):
+    open_requested = Signal()
     """A nonblocking alert when the desktop has no notification backend."""
     def __init__(self, title, message):
         super().__init__()
@@ -155,3 +179,7 @@ class ReminderAlert(QDialog):
         dismiss = QPushButton("Dismiss")
         dismiss.clicked.connect(self.accept)
         box.addWidget(dismiss)
+        open_reminders = QPushButton("Open reminders")
+        open_reminders.clicked.connect(self.open_requested.emit)
+        open_reminders.clicked.connect(self.accept)
+        box.addWidget(open_reminders)

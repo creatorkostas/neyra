@@ -2,12 +2,18 @@
 
 A local dictation dashboard and floating recording overlay for Windows 10/11, Linux, and Apple silicon Macs. Cactus Whistle recognizes English and streams live previews about once per second. Desert Ant Voz supports 25 languages and produces its transcript after recording stops. Both engines run on your CPU. X11 has the best Linux shortcut support; see the Wayland limitations below.
 
+PC audio is muted while you record dictation, reminder commands, or assistant commands, and its previous mute state is restored when you stop. Disable **Mute PC audio while I speak** under **Voice settings → Microphone / models → Desktop**. Meeting recording and microphone testing keep PC audio available.
+
+**Analytics**, beside Voice settings, shows statistics for saved dictations and meetings, plus ChatGPT tokens reported for the selected account's Neyra requests. Token tracking starts with this version and includes input/output tokens from intent recognition and assistant features; it does not include usage from other apps. Deleting saved notes changes the saved-note statistics. No transcripts or prompts are stored in token analytics.
+
+Account controls show 5-hour and weekly quota availability. The supported ChatGPT sign-in flow does not expose those percentages to Neyra; use the account-limits link to see current plan usage in ChatGPT.
+
 ## Current state
 
 Neyra opens to **Home**, with a compact capture bar, recent notes, upcoming
 reminders, and quick actions. **Notes** contains dictations and meeting notes.
 **Reminders** and **Assistant** have their own tabs. Open **Voice settings** for
-microphone and model choices, Dictionary, Snippets, Formatting, and Usage.
+microphone and model choices, Dictionary, Snippets, and Formatting.
 
 Neyra is a useful local speech-to-text tool in an early state. Its default Needle Whistle model is small and uses very little RAM. Transcription results are usable, but not exceptional.
 
@@ -45,11 +51,41 @@ The Home capture bar shows loading, downloading, ready, transcribing, and error 
 
 If a selected microphone is disconnected, Neyra asks you to choose another input. **Refresh microphones** updates the list. Each device name includes its audio API to distinguish duplicate Windows entries.
 
+## Customize shortcuts
+
+Open **Voice settings → Shortcuts** to change all five keyboard combinations.
+Type a combination such as `Ctrl+Alt+D`, then select **Apply shortcuts**. Changes
+apply immediately and are remembered after restart. **Restore defaults** resets
+the combinations. Finish recording and release the keys before applying changes.
+
+Neyra rejects duplicate combinations and combinations contained inside another
+Neyra shortcut. It warns about common system shortcuts, but cannot detect every
+other app's bindings. Supported keys are Ctrl, Alt, Shift, Win, letters, digits,
+Space, and F1–F12. Cmd, Meta, and Super are accepted aliases for Win. Native
+Wayland still requires the desktop's own shortcut integration.
+
 ## Manage words and history
 
 **Dictionary** stores recognition hints for Whistle. Voz does not support these hints. Under **Vocabulary corrections**, enter a misheard phrase and its intended spelling, then click **Save correction**. Corrections match whole words or phrases without case sensitivity and apply to new dictations from either engine. Select an existing row to update it or remove it. Corrections run before output formatting and snippet expansion. They do not change meeting words or timestamps.
 
 Dictation history stays on this computer and retains the latest 500 entries. Search the feed, copy an entry, or delete it from its menu. **Clear history** asks for confirmation and removes saved dictations. Meeting notes are separate. Under **Voice settings → Local history**, turn off **Save new dictations to history** to stop saving new entries. Results still copy to your clipboard; this setting does not delete existing history or clear the system clipboard.
+
+## Export notes and back up data
+
+Choose **Notes → Export notes** to save all dictations and meetings as Markdown
+or plain text. The export includes note dates, titles, and transcript text.
+
+Under **Voice settings → Data**, choose **Create backup** for a JSON backup of
+notes, reminders, vocabulary, snippets, agenda, shortcuts, and portable settings.
+Backups contain personal text and are not encrypted. Keep them somewhere private.
+ChatGPT credentials, custom executable paths, microphone selection, and login
+startup settings are excluded and remain specific to the current computer.
+
+**Restore backup** validates the whole file before asking to replace the included
+data and preferences. Make a backup first if you want to keep the current data.
+Restoring requires recordings and assistant requests to finish; Neyra quits after
+a successful restore. Reopen it to load the restored data. Restore accepts version
+1 Neyra backup files up to 64 MiB.
 
 ## Keep Neyra available
 
@@ -76,7 +112,18 @@ Neyra transcribes the command with your selected speech model and saves the remi
 
 Supported delays use seconds, minutes, hours, days, or weeks, up to 365 days. Numbers can be digits or spoken English, including "a minute", "an hour", "half an hour", and "a quarter of an hour". Absolute dates and phrases such as "sometime later" are not supported. Neyra rejects unclear commands and keeps their text on the **Reminders** page for correction.
 
-Open **Reminders** to type a command, use **Speak a reminder**, inspect scheduled times, or cancel a reminder. Due reminders move to **Recent reminders**, where **Dismiss** removes them. Neyra keeps all pending reminders and the latest 100 due reminders across restarts, independently of dictation history settings.
+Open **Reminders** to type a command, use **Speak a reminder**, inspect scheduled times, or cancel a reminder. Delivered reminders move to **Recent reminders**, where **Dismiss** removes them. Reminder storage is independent of dictation history settings.
+
+Each pending or delivered reminder has an **Actions** menu with **Snooze 10
+minutes**, **Tomorrow 9AM**, and **Mark done**. Tomorrow means 9:00 in your local
+time zone on the next calendar day. Snoozing schedules a new notification for
+the same task. Done tasks appear separately and do not notify again. Receiving
+a notification does not mark a task done. Neyra retains the latest 100 delivered
+or done reminders together, plus all pending reminders.
+
+Click a supported system tray notification to open Reminders. Fallback alerts
+also offer **Open reminders**; notification systems without click support still
+require opening the app to choose an action.
 
 Keep Neyra running, including in the tray, for notifications at the scheduled time. Closed apps cannot notify; overdue reminders appear when you reopen Neyra. Windows and supported Linux trays use desktop notifications. Linux desktops without a tray can use `notify-send` from `libnotify`; if desktop notifications are unavailable or that command fails, Neyra opens a nonblocking reminder alert. Several reminders overdue at startup share one notification, and the full list remains in the dashboard.
 
@@ -86,9 +133,9 @@ Open **Assistant** in the sidebar. Its five tabs cover the following workflows:
 
 1. **Commands:** hold **Ctrl + Alt + A**, speak, then release. Examples include "open calculator", "open browser", "volume up", "pause music", "next track", "set a timer for five minutes", and "daily briefing". These commands run locally. Add a spoken app name and choose its executable under **Assistant apps** to launch your own programs. Neyra never executes arbitrary shell commands from speech or AI output. Windows mute uses the system toggle key; Linux supports "unmute" as well.
 2. **Selected text:** highlight text in another app and press **Ctrl + Alt + E**. Neyra copies it into a preview and restores the previous clipboard when it can identify one stable copy. Choose Explain, Summarize, or Translate, then **Send text to ChatGPT**. You can also paste text manually. Capture alone sends nothing online. This feature reads selected text, not screenshots or the whole screen. The limit is 24,000 characters.
-3. **Ask notes:** enter a question, choose **Find notes**, and review the matching passages. **Ask Luna using these sources** sends the question and those passages. Answers request numbered source references. Search uses local word matching across dictation history and meeting transcripts, with up to six excerpts of 4,500 characters; it does not search arbitrary files. You can say "ask my notes when is the launch" to prepare the search by voice.
-4. **Follow-ups:** choose a saved meeting and **Extract with Luna**. You can also open a meeting and choose **Plan follow-ups with Luna**. Neyra sends that transcript, up to 100,000 characters, and requires each returned task to include a verbatim supporting quote. Select a task, edit it if needed, choose a future date and time, and click **Create reminder**. Extraction alone schedules nothing. Manage saved tasks on **Reminders**.
-5. **Briefing:** add plans to the local agenda, refresh today's briefing, or choose **Read aloud**. The briefing includes today's agenda and pending reminders due by tonight, including overdue ones. Agenda items do not create notifications. Use reminders for alerts. Speech playback uses a system voice and can be stopped. This agenda has no Google or Outlook calendar connection.
+3. **Ask notes:** enter a question, choose **Find notes**, and review the matching passages. **Ask ChatGPT** sends the question and those passages. Answers request numbered source references. Search uses local word matching across dictation history and meeting transcripts, with up to six excerpts of 4,500 characters; it does not search arbitrary files. Voice questions search and answer automatically, without opening this page.
+4. **Follow-ups:** choose a saved meeting and **Find tasks**. You can also open a meeting and choose **Plan follow-ups with Luna**. Neyra sends that transcript, up to 100,000 characters, and requires each returned task to include a verbatim supporting quote. Select a task, edit it if needed, choose a future date and time, and click **Create reminder**. Extraction alone schedules nothing. Manage saved tasks on **Reminders**.
+5. **Briefing:** add plans to the local agenda, refresh today's briefing, or choose **Read aloud**. The briefing includes today's agenda and pending reminders due by tonight, including overdue ones. Agenda items do not create notifications. Use reminders for alerts. Speech playback uses local Piper and can be stopped. This agenda has no Google or Outlook calendar connection.
 
 Assistant speech uses the selected local transcription engine and does not paste into another app or enter dictation history. Timers start when you release the command shortcut. Starting dictation or a meeting stops briefing playback.
 
@@ -96,15 +143,32 @@ Assistant speech uses the selected local transcription engine and does not paste
 
 Click **Continue with ChatGPT** and complete the browser sign-in. Neyra uses OpenAI's documented [open-source ChatGPT sign-in flow](https://developers.openai.com/siwc/token-sharing-open-source/sign-in), with its own registration and a local callback. No API key or separately installed Codex CLI is needed. Your account must grant ChatGPT plan usage to Neyra.
 
-AI requests use exactly **`gpt-6-luna` with low reasoning effort**. Neyra does not substitute another model. A successful request verifies whether your selected account can use Luna; signing in alone does not prove model access. Internet access and ChatGPT plan availability are required, and account usage limits apply. Use **Usage** to open ChatGPT's usage controls. See [ChatGPT plan inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference) and [Luna model settings](https://developers.openai.com/api/docs/models/gpt-6-luna).
+**Spoken assistant answers:** replies requested through the assistant shortcut are read by local Piper. Disable **Read assistant answers aloud** under **Voice settings → Microphone / models → Assistant voice** to keep replies silent and use normal text formatting. Voice replies ask ChatGPT for brief spoken prose, without Markdown, code blocks, symbolic citations, or braces. Structured command routing and task extraction retain their JSON format; only their user-facing feedback is spoken. Starting a recording or choosing **Stop voice** interrupts playback.
+
+The default English `en_US-lessac-medium` voice downloads about 63 MB once to the user cache, with pinned file checksums. Subsequent playback works offline. The voice is English; replies in other languages may be pronounced poorly. The **Read aloud** button remains an explicit way to read the daily briefing. See [third-party notices](THIRD_PARTY_NOTICES.md) for Piper and voice licensing.
+
+To reduce repeated requests, completed text explanations, translations, note answers, and meeting-task suggestions are reused for up to 10 minutes when the account, instructions, input, and output budget match exactly. This bounded cache lives only in memory and is cleared on account changes, sign-out, note-source invalidation, and shutdown. Cancelled or failed results and voice intent commands are not cached. A reused result makes no new ChatGPT request.
+
+Requests keep stable instructions first, put source passages before changing questions, and use task-specific output limits. Provider prompt caching is automatic where eligible; Neyra uses an opaque per-account cache key and leaves default cache retention unchanged. Analytics shows provider-reported cached input tokens as part of input tokens, never as extra tokens or a quota discount. Cache hits are not guaranteed, and cached input still counts toward token rate limits.
+
+With a connected ChatGPT account, you can speak naturally: “Could you shorten the text I highlighted?” or “What does my day look like?” Familiar commands run locally; other requests use ChatGPT to identify a supported action. Neyra sends the spoken request and basic workflow state for interpretation, excluding note contents, selected text, and executable paths. Missing essential details prompt a spoken question. Voice requests automatically run the requested tool and speak its result; typed requests retain their previews. Suggested tasks create reminders only when you ask for a task and a time. Without a connected account, use the commands below.
+
+The **assistant command shortcut** (Ctrl + Alt + A by default) is the main interaction: hold it, speak naturally, then release. Neyra runs the required tool and speaks back without opening the dashboard or asking you to press Send. Ordinary questions receive a conversational answer; voice requests for selected text, saved notes, and meetings authorize sending that requested context. Examples:
+
+- **Selected text:** say “summarize selected text,” “explain selection,” or “translate selection into Greek.” Neyra captures the selection, sends it to ChatGPT, and speaks the result automatically. Keep the source app focused. Where automatic capture is blocked, copy the text and say “summarize clipboard.”
+- **Ask notes:** ask about your saved notes, for example “What did my notes say about the launch?” Neyra searches matching excerpts, asks ChatGPT, and speaks the answer automatically.
+- **Follow-ups:** ask for tasks from the latest meeting or name a meeting. Neyra extracts and reads them automatically. Say “schedule task one in an hour” to save a reminder. Tasks are numbered; existing reminders are not duplicated.
+- **Today:** say “daily briefing,” “show today,” or “stop reading.” Add a plan with “add a plan in an hour to call Alex” and remove it with “remove plan one.” Plan numbers appear under Edit plans. Plans do not send notifications; use “remind me in an hour to call Alex” for a notification.
+
+AI requests use exactly **`gpt-6-luna` with low reasoning effort**. Neyra does not substitute another model. A successful request verifies whether your selected account can use Luna; signing in alone does not prove model access. Internet access and ChatGPT plan availability are required, and account usage limits apply. Use **Account limits** to open ChatGPT's usage controls. See [ChatGPT plan inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference) and [Luna model settings](https://developers.openai.com/api/docs/models/gpt-6-luna).
 
 The account picker supports saved accounts and adding another account. **Sign out** attempts to revoke the selected session and clears its local tokens. If remote revocation cannot be confirmed, Neyra says so; disconnect it in ChatGPT Settings. Account mappings remain so later sign-ins can reuse their registration.
 
-Credentials are stored outside the project under Qt's user configuration location in `Neyra/chatgpt`. Windows protects the credential file with the current user's DPAPI; Unix uses an owner-only directory and file. Requests set `store: false`. Audio is never sent to ChatGPT. AI receives only the selected text, the reviewed note excerpts, or the meeting transcript you ask it to process. AI answers can still be wrong, so inspect the cited passages and proposed tasks.
+Credentials are stored outside the project under Qt's user configuration location in `Neyra/chatgpt`. Windows protects the credential file with the current user's DPAPI; Unix uses an owner-only directory and file. Requests set `store: false`. Audio is never sent to ChatGPT. AI receives the spoken request and any selected text, matching note excerpts, or meeting transcript needed for the tool you ask it to use. Voice requests send that context automatically; typed requests retain a preview. AI answers can still be wrong, so inspect the cited passages and proposed tasks.
 
 ### Linux assistant dependencies
 
-Commands and the dashboard work on Linux. Install `playerctl` for media playback commands and `wpctl` from WirePlumber, or `pactl`, for volume commands. Briefing playback requires a system speech engine such as `speech-dispatcher` with an installed voice. The packaged app includes Qt's text-to-speech plugins, but system voices remain external dependencies. If speech playback is unavailable, the briefing remains readable.
+Commands and the dashboard work on Linux. Install `playerctl` for media playback commands and `wpctl` from WirePlumber, or `pactl`, for volume commands. Piper speech is bundled. Its English voice downloads once on first use; playback uses the default output device. If playback is unavailable, answers and briefings remain readable.
 
 On native Wayland, use **Speak command** in Assistant and copy text manually into the preview. Global keyboard hooks and simulated copy are subject to the same desktop restrictions as dictation.
 
@@ -128,15 +192,23 @@ uv run python scripts/build.py --standalone
 
 Build on Windows to produce `dist/Neyra.exe`, on Linux to produce `dist/Neyra`, and on Apple silicon macOS to produce `dist/Neyra.app`. Nuitka does not cross-compile. macOS builds are not signed or notarized, so Gatekeeper may require you to approve opening the downloaded app in **System Settings → Privacy & Security**. macOS may also ask you to grant microphone access and Accessibility access for global shortcuts. The executable is self-extracting, not a fully static binary; Linux still needs compatible system libraries and a display server.
 
+For macOS release packages, use `uv run python scripts/build.py --standalone`.
+The workflow packages the resulting self-contained `Neyra.app` directory as a zip.
+Windows and Linux release packages use `--onefile`.
+
 **Packaging caveat:** Cactus's fetched engine layout may change, and some distributions may contain multiple libraries. The build deliberately fails instead of silently falling back to online downloads. If `NEEDLE3_LIB_PATH` is ignored by a future Cactus release or native dependencies are missing, verify against that release and adjust the packaging.
 
 ## Publish a release
 
 Push a version tag such as `v0.1.0` to build the Windows, Linux, and Apple silicon macOS packages and publish them as GitHub release assets. The workflow also builds all three on pushes to `main`.
 
+Pull requests also build all three packages so native packaging errors can be
+caught before merging. The checks workflow imports the installed Voz and ONNX
+runtime to check their bridge APIs without downloading model weights.
+
 Tagged releases also attach `neyra-bin-VERSION-aur.tar.gz`, a submission archive for the Arch User Repository. It contains the package recipe, matching `.SRCINFO`, desktop launcher, icon, and license. Its checksums come from the exact Linux release archive. See [AUR packaging and submission](packaging/aur/README.md) for Arch validation and SSH submission. Generating these files does not publish the package to the AUR.
 
-## Controls
+## Default controls
 
 - **Hold** `Ctrl+Win` to record; release either key to finish. The overlay hides on release, and the transcript is copied to the clipboard when transcription completes.
 - **Toggle** `Ctrl+Shift+Space` to start/stop recording.
@@ -221,7 +293,7 @@ uv run python -m unittest discover -s tests -v
 
 These checks use isolated settings and simulated audio devices. They cover device selection, meter-test cleanup, recording controls, history retention and clearing, vocabulary corrections, login entries, and the Voz preload/subprocess protocol. Reminder checks cover spoken time parsing, shortcut isolation, persistent deadlines, timer delivery, cancellation, and shutdown before notification acknowledgment. They do not capture the microphone or system audio or send actual desktop notifications. Run `python packaging/aur/check_generator.py` separately for the portable AUR generator checks; Arch installation needs native validation.
 
-Assistant checks cover command restrictions, clipboard preservation, reviewed source sharing, grounded action extraction, explicit reminder creation, and local agenda persistence. ChatGPT tests use a real loopback callback with mocked provider endpoints, signed synthetic ID tokens, credential protection, refresh locking, and simulated response streams. They do not sign into a real account or consume ChatGPT usage. Test actual login, model access, desktop shortcuts, and system speech on your target machine.
+Assistant checks cover command restrictions, clipboard preservation, reviewed source sharing, grounded action extraction, explicit reminder creation, and local agenda persistence. ChatGPT tests use a real loopback callback with mocked provider endpoints, signed synthetic ID tokens, credential protection, refresh locking, and simulated response streams. They do not sign into a real account or consume ChatGPT usage. Test actual login, model access, desktop shortcuts, and speaker playback on your target machine.
 
 ## Troubleshooting
 

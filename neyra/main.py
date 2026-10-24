@@ -1,27 +1,33 @@
 import locale
+import math
 import sys
 import queue
 import json
 import time
 import shutil
+from pathlib import Path
 import numpy as np
 from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, QPoint, Signal, QSize, QSettings, QObject, Slot, QProcess
 from PySide6.QtGui import QColor, QPainter, QPen, QAction
-from PySide6.QtWidgets import QApplication, QWidget, QSystemTrayIcon, QMenu, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QPushButton, QFrame, QStackedWidget, QLineEdit, QTableWidget, QTableWidgetItem, QProgressBar, QMessageBox, QAbstractItemView, QCheckBox, QScrollArea
+from PySide6.QtWidgets import QApplication, QWidget, QSystemTrayIcon, QMenu, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QPushButton, QFrame, QStackedWidget, QLineEdit, QTableWidget, QTableWidgetItem, QMessageBox, QAbstractItemView, QCheckBox, QScrollArea, QFileDialog
 from .audio import Microphone, input_devices
 from .stt import Transcriber
 from .desktop import insert_text, is_wayland
+from .speaker_mute import SpeakerMute
+from .analytics import AnalyticsPanel
 from .text_tools import apply_style, expand_snippets
 from .system_audio import SystemAudioRecorder
-from .ui import THEME, TranscriptFeed, DashboardComboBox, NotetakerPanel, DictationPanel, InputMeter, icon, icon_button
+from .ui import THEME, TranscriptFeed, DashboardComboBox, NotetakerPanel, DictationPanel, InputMeter, icon, icon_button, app_icon
 from .meeting import bridge_path, validated_words
 from . import startup
-from .reminders import ReminderStore
+from .reminders import ReminderStore, snooze_deadline
 from .reminders_ui import RemindersPanel, ReminderAlert, due_label
 from .assistant_ui import AssistantPanel
 from .assistant_features import AssistantFeatures
 from .home_ui import HomePanel
+from .preferences_ui import ShortcutsPanel, DataPanel
+from .shortcuts import load_bindings, validate_bindings, shortcut_label
 
 
 def load_setting(settings, key, expected, default):
@@ -73,6 +79,7 @@ class Overlay(QWidget):
         self.move(90, 90)
         self.drag_offset = QPoint()
         self.level = 0.0
+        self.phase = 0.0
         self.state = "Ready"
         self.text = "Hold Ctrl+Win to dictate"
         self.tick = QTimer(self)
@@ -88,6 +95,7 @@ class Overlay(QWidget):
         super().hideEvent(event)
 
     def animate(self):
+        self.phase += 0.14
         self.level *= 0.89
         self.update()
 
@@ -96,16 +104,16 @@ class Overlay(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(24, 31, 55, 248))
-        p.drawRoundedRect(self.rect().adjusted(4, 4, -4, -4), 12, 12)
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(QColor("#303954"), 5))
-        p.drawEllipse(24, 36, 48, 48)
-        p.setPen(QPen(QColor("#93a4d7"), 5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        p.drawArc(24, 36, 48, 48, 90 * 16, -int((40 + min(1.0, self.level * 9) * 290) * 16))
+        p.drawRoundedRect(self.rect().adjusted(4, 4, -4, -4), 20, 20)
+        p.setPen(QColor("#c4d0f5"))
+        p.drawText(20, 26, f"NEYRA   •   {self.state}")
+        for i in range(72):
+            x = 20 + i * 5.15
+            amp = min(1.0, self.level * 9.0)
+            h = 4 + amp * (8 + abs(math.sin(i * 0.46 + self.phase) * math.cos(i * .16)) * 28)
+            p.setPen(QPen(QColor("#93b6ff" if i < 25 else "#b5a4ef"), 2.6))
+            p.drawLine(int(x), int(66-h/2), int(x), int(66+h/2))
         p.setPen(QColor("#d9dff2"))
-        p.drawText(94, 44, "NEYRA")
-        p.drawText(94, 70, self.state)
-        p.setPen(QColor("#c4c9d8"))
         fm = p.fontMetrics()
         p.drawText(20, 105, fm.elidedText(self.text, Qt.TextElideMode.ElideLeft, 370))
 
@@ -123,31 +131,33 @@ class HistoryDashboard(QDialog):
     closed = Signal()
     history_cleared = Signal()
     transcript_deleted = Signal(object)
+    restore_data_requested = Signal(object)
 
     def __init__(self):
         super().__init__()
         self.setObjectName("dashboard")
         self.setWindowTitle("Neyra")
-        self.setWindowIcon(icon("brand"))
+        self.setWindowIcon(app_icon())
         self.resize(1340, 840)
         self.setMinimumSize(1000, 640)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setSizeGripEnabled(True)
         self.settings = QSettings(QSettings.defaultFormat(), QSettings.Scope.UserScope, "Neyra", "Neyra")
+        self.shortcuts = load_bindings(self.settings)
+        self.capture_busy = False
         self.records = load_records(self.settings, "history")[-500:]
         self.model_states = {"whistle": ("idle", "Whistle loads in the background and recognizes English.", -1),
                              "voz": ("idle", "Voz downloads its model on first use. Select it to start loading.", -1)}
         self.setStyleSheet(THEME)
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 9, 9)
+        root.setContentsMargins(9, 0, 9, 9)
         root.setSpacing(0)
         bar = QWidget()
         bar.setObjectName("windowBar")
         bar.setFixedHeight(44)
         bar_layout = QHBoxLayout(bar)
         bar_layout.setContentsMargins(14, 2, 8, 2)
-        bar_layout.addWidget(QLabel("NEYRA / YOUR VOICE WORKSPACE"))
         bar_layout.addStretch()
         self.status_label = QLabel("Ready to dictate")
         self.status_label.setObjectName("muted")
@@ -170,8 +180,8 @@ class HistoryDashboard(QDialog):
         self.sidebar = QFrame()
         self.sidebar.setObjectName("sidebar")
         side = QHBoxLayout(self.sidebar)
-        side.setContentsMargins(24, 8, 24, 12)
-        side.setSpacing(10)
+        side.setContentsMargins(16, 8, 16, 12)
+        side.setSpacing(6)
         brand_row = QHBoxLayout()
         mark = QLabel()
         mark.setPixmap(icon("brand", 28, "#365bd6").pixmap(28, 28))
@@ -195,16 +205,28 @@ class HistoryDashboard(QDialog):
             self.nav_buttons[index] = button
         self.nav_buttons[9].setChecked(True)
         side.addStretch(1)
-        for name, callback in (("Voice settings", lambda: self.show_page(6)), ("Help", self.show_help)):
+        for name, callback in (("Analytics", lambda: self.show_page(2)), ("Voice settings", lambda: self.show_page(6)), ("Help", self.show_help)):
             button = QPushButton(name)
             button.setObjectName("nav")
-            button.setIcon(icon("settings" if name == "Voice settings" else "help"))
+            button.setIcon(icon({"Analytics": "insights", "Voice settings": "settings", "Help": "help"}[name]))
             button.clicked.connect(callback)
-            if name == "Voice settings":
+            if name in ("Analytics", "Voice settings"):
                 button.setCheckable(True)
-                self.nav_buttons[6] = button
+                self.nav_buttons[2 if name == "Analytics" else 6] = button
             side.addWidget(button)
         main.addWidget(self.sidebar)
+        shortcuts_bar = QWidget()
+        shortcuts_layout = QHBoxLayout(shortcuts_bar)
+        shortcuts_layout.setContentsMargins(24, 0, 24, 10)
+        self.dictation_key_hint = QLabel()
+        self.dictation_key_hint.setObjectName("muted")
+        self.assistant_key_hint = QLabel()
+        self.assistant_key_hint.setObjectName("muted")
+        shortcuts_layout.addWidget(self.dictation_key_hint)
+        shortcuts_layout.addSpacing(24)
+        shortcuts_layout.addWidget(self.assistant_key_hint)
+        shortcuts_layout.addStretch()
+        main.addWidget(shortcuts_bar)
         content = QFrame()
         content.setObjectName("surface")
         body = QVBoxLayout(content)
@@ -218,7 +240,7 @@ class HistoryDashboard(QDialog):
         context.setContentsMargins(0, 0, 0, 0)
         self.context_buttons = {}
         for page, title in ((0, "Dictations"), (1, "Meetings"), (6, "Microphone / models"),
-                            (3, "Dictionary"), (4, "Snippets"), (5, "Formatting"), (2, "Usage")):
+                            (10, "Shortcuts"), (3, "Dictionary"), (4, "Snippets"), (5, "Formatting"), (11, "Data")):
             button = QPushButton(title)
             button.setObjectName("nav")
             button.setCheckable(True)
@@ -226,6 +248,9 @@ class HistoryDashboard(QDialog):
             context.addWidget(button)
             self.context_buttons[page] = button
         context.addStretch()
+        self.export_notes_button = QPushButton("Export notes")
+        self.export_notes_button.clicked.connect(self.export_notes_file)
+        context.addWidget(self.export_notes_button)
         body.addWidget(self.context_nav)
         self.pages = QStackedWidget()
         body.addWidget(self.pages, 1)
@@ -269,38 +294,6 @@ class HistoryDashboard(QDialog):
         self.search_input.textChanged.connect(self.search_history)
         feed.addWidget(self.items, 1)
         columns.addLayout(feed, 1)
-        summary = QFrame()
-        summary.setObjectName("summaryCard")
-        summary.setMaximumWidth(560)
-        stats = QVBoxLayout(summary)
-        stats.setContentsMargins(24, 24, 24, 25)
-        stats.setSpacing(14)
-        self.words_stat = QLabel()
-        self.count_stat = QLabel()
-        self.latest_stat = QLabel()
-        for stat in (self.words_stat, self.count_stat, self.latest_stat):
-            stat.setStyleSheet("font-size: 17px;")
-            stats.addWidget(stat)
-        stats.addSpacing(7)
-        line = QFrame()
-        line.setObjectName("divider")
-        line.setFixedHeight(1)
-        stats.addWidget(line)
-        stats.addSpacing(8)
-        title = QLabel("Your dictation activity")
-        title.setStyleSheet("font-weight: 600;")
-        stats.addWidget(title)
-        note = QLabel("Words captured locally with Neyra")
-        note.setObjectName("muted")
-        stats.addWidget(note)
-        self.words_progress = QProgressBar()
-        self.words_progress.setRange(0, 5000)
-        self.words_progress.setTextVisible(False)
-        stats.addWidget(self.words_progress)
-        self.words_goal = QLabel()
-        self.words_goal.setObjectName("muted")
-        stats.addWidget(self.words_goal)
-        self.summary_card = summary
         dictation_layout.addLayout(columns, 1)
         self.pages.addWidget(dictation)
 
@@ -322,18 +315,9 @@ class HistoryDashboard(QDialog):
         self.notetaker_status = self.notetaker.status
         self.pages.addWidget(self.notetaker)
 
-        # Usage insights
-        insights = QWidget()
-        insights_layout = QVBoxLayout(insights)
-        self.insights_words = QLabel()
-        self.insights_count = QLabel()
-        self.insights_streak = QLabel()
-        for label in (self.insights_words, self.insights_count, self.insights_streak):
-            label.setStyleSheet("font-size: 22px; padding: 14px;")
-            label.hide()
-        insights_layout.addWidget(self.summary_card)
-        insights_layout.addStretch()
-        self.pages.addWidget(insights)
+        self.analytics_usage = {}
+        self.analytics_panel = AnalyticsPanel()
+        self.pages.addWidget(self.analytics_panel)
 
         # Personal dictionary
         dictionary = QWidget()
@@ -393,6 +377,8 @@ class HistoryDashboard(QDialog):
         self.snippets_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.snippets_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.snippets_table.setHorizontalHeaderLabels(["Spoken trigger", "Expanded text"])
+        trigger_width = self.snippets_table.fontMetrics().horizontalAdvance("Spoken trigger") + 48
+        self.snippets_table.setColumnWidth(0, max(180, trigger_width))
         self.snippets_table.horizontalHeader().setStretchLastSection(True)
         snippets_layout.addWidget(self.snippets_table, 1)
         snippet_row = QHBoxLayout()
@@ -437,9 +423,17 @@ class HistoryDashboard(QDialog):
         self.home.meeting.connect(self.start_home_meeting)
         self.home.ask_notes.connect(self.open_note_question)
         self.reminders.records_changed.connect(self.refresh_home)
+        self.shortcut_panel = ShortcutsPanel(self.settings)
+        self.pages.addWidget(self.shortcut_panel)
+        self.data_panel = DataPanel()
+        self.pages.addWidget(self.data_panel)
+        self.data_panel.export_requested.connect(self.export_notes_file)
+        self.data_panel.backup_requested.connect(self.backup_file)
+        self.data_panel.restore_requested.connect(self.restore_file)
 
         self.items.refresh(self.records)
-        self.update_stats()
+        self.refresh_notes_state()
+        self.set_shortcut_hints(self.shortcuts)
         self.show_page(9)
         self.capture.record_button.setFocus()
         for button in self.findChildren(QPushButton):
@@ -532,10 +526,29 @@ class HistoryDashboard(QDialog):
         self.close_to_tray_toggle.setChecked(self.settings.value("close_to_tray", True, type=bool))
         self.close_to_tray_toggle.toggled.connect(lambda value: self.settings.setValue("close_to_tray", value))
         desktop.addWidget(self.close_to_tray_toggle)
+        self.mute_while_speaking_toggle = QCheckBox("Mute PC audio while I speak")
+        self.mute_while_speaking_toggle.setChecked(self.settings.value("mute_while_speaking", True, type=bool))
+        self.mute_while_speaking_toggle.toggled.connect(lambda value: self.settings.setValue("mute_while_speaking", value))
+        desktop.addWidget(self.mute_while_speaking_toggle)
         self.desktop_status = QLabel("Autostart opens in the tray when your desktop supports a tray icon.")
         self.desktop_status.setObjectName("settingStatus")
         self.desktop_status.setWordWrap(True)
         desktop.addWidget(self.desktop_status)
+
+        spoken = card("Assistant voice", "Piper reads replies locally. Its English voice downloads once on first use.")
+        self.spoken_answers_toggle = QCheckBox("Read assistant answers aloud")
+        self.spoken_answers_toggle.setChecked(self.settings.value("spoken_assistant_answers", True, type=bool))
+        self.spoken_answers_toggle.toggled.connect(lambda value: self.settings.setValue("spoken_assistant_answers", value))
+        spoken.addWidget(self.spoken_answers_toggle)
+
+        account_usage = card("ChatGPT account", "Current plan limits are managed by ChatGPT.")
+        self.account_five_hour_usage = QLabel("5-hour · Not connected")
+        self.account_weekly_usage = QLabel("Weekly · Not connected")
+        account_usage.addWidget(self.account_five_hour_usage)
+        account_usage.addWidget(self.account_weekly_usage)
+        account_link = QLabel('<a href="https://chatgpt.com/settings/usage">View account limits in ChatGPT ↗</a>')
+        account_link.setOpenExternalLinks(True)
+        account_usage.addWidget(account_link)
 
         privacy = card("Local history", "Keep up to 500 dictations on this computer. Meeting notes are saved separately in Notetaker.")
         self.save_history_toggle = QCheckBox("Save new dictations to history")
@@ -603,6 +616,10 @@ class HistoryDashboard(QDialog):
         self.retry_model_button.setEnabled(state not in ("loading", "downloading", "transcribing", "ready"))
 
     def set_capture_busy(self, busy):
+        self.capture_busy = busy
+        self.shortcut_panel.set_busy(busy)
+        self.data_panel.set_busy(busy)
+        self.export_notes_button.setEnabled(not busy)
         for control in (self.mic_choice, self.refresh_mics_button, self.test_mic_button, self.engine_choice):
             control.setEnabled(not busy)
         if busy:
@@ -623,16 +640,19 @@ class HistoryDashboard(QDialog):
     def show_page(self, index):
         self.pages.setCurrentIndex(index)
         self.heading.setVisible(index != 1)
-        self.heading.setText(("Notes", "Meeting notes", "Usage", "Dictionary", "Snippets", "Formatting", "Voice settings", "Reminders", "Assistant", "Home")[index])
-        group = 0 if index in (0, 1) else 6 if index in (2, 3, 4, 5, 6) else index
+        self.heading.setText(("Notes", "Meeting notes", "Analytics", "Dictionary", "Snippets", "Formatting", "Voice settings", "Reminders", "Assistant", "Home", "Shortcuts", "Data & backup")[index])
+        group = 0 if index in (0, 1) else 6 if index in (3, 4, 5, 6, 10, 11) else index
         for i, button in self.nav_buttons.items():
             button.setChecked(i == group)
         self.context_nav.setVisible(group in (0, 6))
+        self.export_notes_button.setVisible(group == 0)
         for page, button in self.context_buttons.items():
-            button.setVisible((page in (0, 1)) if group == 0 else page in (2, 3, 4, 5, 6))
+            button.setVisible((page in (0, 1)) if group == 0 else page in (3, 4, 5, 6, 10, 11))
             button.setChecked(page == index)
         if index == 9:
             self.refresh_home()
+        elif index == 2:
+            self.refresh_analytics()
 
     def open_note_question(self):
         self.show_page(8)
@@ -652,6 +672,81 @@ class HistoryDashboard(QDialog):
             self.home_reminders = list(reminders)
         self.home.refresh(self.records, self.meeting_records, self.home_reminders)
 
+    def set_shortcut_hints(self, bindings):
+        self.shortcuts = dict(bindings)
+        label = lambda action: shortcut_label(bindings, action)
+        self.dictation_key_hint.setText(f"Dictate · Hold {label('dictation')}")
+        self.assistant_key_hint.setText(f"Assistant · Hold {label('assistant')}")
+        self.capture.shortcut_hint = "Record here, or dictate into another app."
+        if self.capture.session_state == "idle":
+            self.capture.detail.setText(self.capture.shortcut_hint)
+        self.items.refresh(self.records)
+        self.reminders.shortcut_hint.setText('Say "remind me in an hour to take out the garbage", or type it below.')
+        self.assistant_panel.command_hint.setText('Speak naturally with ChatGPT connected. Try "summarize selected text" or "daily briefing".')
+        self.assistant_panel.selection_hint.setText('Ask the assistant to explain, summarize, or translate selected text. You can also paste below.')
+
+    def export_notes_file(self):
+        if self.capture_busy:
+            return
+        path, selected = QFileDialog.getSaveFileName(self, "Export notes", "Neyra-notes.md", "Markdown (*.md);;Plain text (*.txt)")
+        if not path:
+            return
+        from .data_transfer import export_notes, write_text_atomic
+        target = Path(path)
+        if not target.suffix:
+            target = target.with_suffix(".txt" if "*.txt" in selected else ".md")
+        try:
+            if target.suffix.lower() not in (".md", ".txt"):
+                raise ValueError("Choose a .md or .txt file.")
+            write_text_atomic(target, export_notes(self.records, self.meeting_records, markdown=target.suffix.lower() == ".md"))
+            self.data_panel.status.setText(f"Notes exported to {target}")
+            self.status_label.setText(f"Notes exported: {target.name}")
+        except (OSError, ValueError) as exc:
+            self.data_panel.status.setText(f"Export failed: {exc}")
+            self.status_label.setText("Notes could not be exported. See Data & backup.")
+
+    def backup_file(self):
+        if self.capture_busy:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Create backup", "Neyra-backup.json", "Neyra backup (*.json)")
+        if not path:
+            return
+        from .data_transfer import create_backup, write_text_atomic
+        if not path.lower().endswith(".json"):
+            path += ".json"
+        try:
+            write_text_atomic(path, json.dumps(create_backup(self.settings), ensure_ascii=False, allow_nan=False, indent=2) + "\n")
+            self.data_panel.status.setText(f"Backup saved to {path}")
+        except (OSError, ValueError) as exc:
+            self.data_panel.status.setText(f"Backup failed: {exc}")
+
+    def restore_file(self):
+        if self.capture_busy:
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Restore backup", "", "Neyra backup (*.json)")
+        if not path:
+            return
+        from .data_transfer import validate_backup
+        try:
+            with open(path, "rb") as backup:
+                raw = backup.read(64 * 1024 * 1024 + 1)
+            if len(raw) > 64 * 1024 * 1024:
+                raise ValueError("Choose a backup smaller than 64 MiB.")
+            payload = json.loads(raw.decode("utf-8"))
+            validate_backup(payload)
+            data = payload["data"]
+            message = (f'Replace local data with {len(data["history"])} dictations, '
+                       f'{len(data["meetings"])} meeting notes, {len(data["reminders"])} reminders, '
+                       'vocabulary, agenda, and portable settings?\n\n'
+                       'This replaces the included data and settings. Create a backup first if you want to keep them. '
+                       'Neyra will quit after restoration. Reopen it to use the restored data.')
+            if QMessageBox.question(self, "Replace data from backup?", message,
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                    QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+                self.restore_data_requested.emit(payload)
+        except (OSError, ValueError, UnicodeError) as exc:
+            self.data_panel.status.setText(f"Restore failed: {exc}")
+
     def toggle_maximized(self):
         self.showNormal() if self.isMaximized() else self.showMaximized()
 
@@ -667,7 +762,77 @@ class HistoryDashboard(QDialog):
             self.windowHandle().startSystemMove()
 
     def show_help(self):
-        QMessageBox.information(self, "Using Neyra", "Hold Ctrl + Win to dictate, then release to paste.\nCtrl + Shift + Space toggles recording.\nHold Ctrl + Alt + Space to speak a reminder.\nHold Ctrl + Alt + A to speak an assistant command.\nCtrl + Alt + E captures selected text for review.\n\nExample: Remind me in an hour to take out the garbage.\nKeep Neyra running in the tray for on-time notifications.\n\nOpen Assistant to connect ChatGPT, ask questions about saved notes, plan meeting follow-ups, or hear your daily briefing. AI uses GPT-6 Luna with low reasoning. Only text you choose to send is shared.\n\nChoose your local transcription engine in Settings.")
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Using Neyra")
+        dialog.setWindowIcon(app_icon())
+        dialog.setStyleSheet(THEME)
+        dialog.resize(560, 620)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 22, 24, 20)
+        layout.setSpacing(16)
+        heading = QLabel("Make room for your voice")
+        heading.setObjectName("heading")
+        heading.setWordWrap(True)
+        layout.addWidget(heading)
+        intro = QLabel("Your shortcuts, notes, and reminders in one place.")
+        intro.setObjectName("muted")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        body = QVBoxLayout(content)
+        body.setContentsMargins(0, 0, 8, 0)
+        body.setSpacing(16)
+        card = QFrame()
+        card.setObjectName("settingsCard")
+        shortcuts = QVBoxLayout(card)
+        shortcuts.setContentsMargins(18, 16, 18, 16)
+        shortcuts.setSpacing(14)
+        for action, title, detail in (
+            ("dictation", "Dictate anywhere", "Hold to speak, then release to paste."),
+            ("assistant", "Ask your assistant", "Hold to speak an assistant command."),
+        ):
+            row = QHBoxLayout()
+            text = QVBoxLayout()
+            name = QLabel(title)
+            name.setStyleSheet("font-weight: 600;")
+            text.addWidget(name)
+            hint = QLabel(detail)
+            hint.setObjectName("muted")
+            hint.setWordWrap(True)
+            text.addWidget(hint)
+            row.addLayout(text, 1)
+            key = QLabel(shortcut_label(self.shortcuts, action))
+            key.setStyleSheet("background: #dee2ed; color: #263256; border-radius: 6px; padding: 6px 9px; font-size: 12px;")
+            row.addWidget(key)
+            shortcuts.addLayout(row)
+        body.addWidget(card)
+        for title, detail in (
+            ("Make it yours", "Change key combinations in Voice settings → Shortcuts. Snooze or complete tasks in Reminders → Actions."),
+            ("Keep your words", "Export from Notes. Create or restore a backup in Voice settings → Data."),
+            ("Stay connected", "Keep Neyra running in the tray for on-time notifications. Only text you choose to send is shared with ChatGPT."),
+        ):
+            name = QLabel(title)
+            name.setObjectName("sectionTitle")
+            body.addWidget(name)
+            hint = QLabel(detail)
+            hint.setObjectName("muted")
+            hint.setWordWrap(True)
+            body.addWidget(hint)
+        body.addStretch()
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
+        footer = QHBoxLayout()
+        footer.addStretch()
+        done = QPushButton("Got it")
+        done.setObjectName("primary")
+        done.setDefault(True)
+        done.clicked.connect(dialog.accept)
+        footer.addWidget(done)
+        layout.addLayout(footer)
+        dialog.exec()
 
     def toggle_search(self):
         self.search_input.setVisible(not self.search_input.isVisible())
@@ -683,7 +848,7 @@ class HistoryDashboard(QDialog):
         self.records.pop(index)
         self.settings.setValue("history", json.dumps(self.records))
         self.items.refresh(self.records)
-        self.update_stats()
+        self.refresh_notes_state()
         self.transcript_deleted.emit(record)
 
     def clear_history(self):
@@ -698,7 +863,7 @@ class HistoryDashboard(QDialog):
         self.records.clear()
         self.settings.setValue("history", "[]")
         self.items.refresh(self.records)
-        self.update_stats()
+        self.refresh_notes_state()
         self.history_cleared.emit()
 
     def add_transcript(self, text, duration=0):
@@ -709,7 +874,7 @@ class HistoryDashboard(QDialog):
         self.records = self.records[-500:]
         self.settings.setValue("history", json.dumps(self.records))
         self.items.refresh(self.records)
-        self.update_stats()
+        self.refresh_notes_state()
         return record
 
     def save_meeting_options(self):
@@ -747,33 +912,14 @@ class HistoryDashboard(QDialog):
         radius = 0 if self.isMaximized() else 10
         painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), radius, radius)
 
-    def update_stats(self):
-        total_words = sum(len(record["text"].split()) for record in self.records)
-        days = {datetime.fromisoformat(record["time"]).date() for record in self.records}
-        streak, day = 0, datetime.now().date()
-        if day not in days:
-            day = day.fromordinal(day.toordinal() - 1)
-        while day in days:
-            streak += 1
-            day = day.fromordinal(day.toordinal() - 1)
+    def refresh_analytics(self):
+        self.analytics_panel.refresh(self.records, self.meeting_records, self.analytics_usage)
+
+    def refresh_notes_state(self):
         date = datetime.fromisoformat(self.records[-1]["time"]) if self.records else datetime.now()
         self.feed_date.setText(date.strftime("%B %d, %Y").upper())
-        def number(value, unit):
-            return f'<span style="font-family: Georgia; font-size: 28px;">{value}</span> {unit}'
-        self.words_stat.setText(number(f"{total_words:,}", "total words"))
-        durations = [(r, r.get("duration", 0)) for r in self.records]
-        timed = [(r, d) for r, d in durations if isinstance(d, (int, float)) and d > 0]
-        seconds = sum(d for _, d in timed)
-        wpm = round(sum(len(r["text"].split()) for r, _ in timed) * 60 / seconds) if seconds else 0
-        self.count_stat.setText(number(wpm, "wpm"))
-        self.count_stat.setToolTip("Average words per minute for timed recordings" if seconds else "Speed appears after your first new recording")
-        self.latest_stat.setText(number(streak, "day streak"))
-        self.words_progress.setValue(min(total_words, 5000))
-        self.words_goal.setText(f"{total_words:,} / 5,000 words")
         self.clear_history_button.setEnabled(bool(self.records))
-        self.insights_words.setText(f"{total_words:,} total words")
-        self.insights_count.setText(f"{len(self.records)} dictations")
-        self.insights_streak.setText(f"{streak} day streak")
+        self.refresh_analytics()
         self.refresh_home()
 
     def dictionary_words(self):
@@ -865,6 +1011,7 @@ class HistoryDashboard(QDialog):
             self.refresh_snippets()
 class Assistant(QObject):
     level_changed = Signal(float)
+    speaker_mute_error = Signal(str)
 
     def __init__(self, app):
         super().__init__()
@@ -901,11 +1048,17 @@ class Assistant(QObject):
         self._meeting_audio = None
         self._meeting_capture_warnings = []
         self.history = HistoryDashboard()
+        self.speaker_mute = SpeakerMute(on_error=self.speaker_mute_error.emit)
+        self.speaker_mute_error.connect(lambda message: self.history.desktop_status.setText(message))
+        self.history.mute_while_speaking_toggle.toggled.connect(self.change_recording_mute)
         self.reminder_store = ReminderStore(self.history.settings)
         self.history.reminders.refresh(self.reminder_store.records)
         self.history.reminders.speak_requested.connect(self.toggle_reminder)
         self.history.reminders.command_submitted.connect(self.submit_reminder)
         self.history.reminders.remove_requested.connect(self.remove_reminder)
+        self.history.reminders.snooze_requested.connect(self.snooze_reminder)
+        self.history.reminders.done_requested.connect(self.complete_reminder)
+        self.history.restore_data_requested.connect(self.restore_data)
         self.reminder_timer = QTimer(self)
         self.reminder_timer.setInterval(1000)
         self.reminder_timer.timeout.connect(self.check_reminders)
@@ -928,7 +1081,7 @@ class Assistant(QObject):
         self.history.notetaker.discard_requested.connect(self.discard_meeting)
         self.assistant_features = AssistantFeatures(self)
         self.history.notetaker.followups_requested.connect(self.assistant_features.show_followups)
-        self.tray = QSystemTrayIcon(icon("brand"), app)
+        self.tray = QSystemTrayIcon(app_icon(), app)
         menu = self.tray_menu = QMenu()
         self.tray_status = menu.addAction("Ready to dictate")
         self.tray_status.setEnabled(False)
@@ -950,6 +1103,7 @@ class Assistant(QObject):
         self.tray.setContextMenu(menu)
         self.tray.setToolTip("Neyra")
         self.tray.activated.connect(self.tray_activated)
+        self.tray.messageClicked.connect(self.show_reminders)
         self.tray.show()
         tray_available = QSystemTrayIcon.isSystemTrayAvailable()
         self.history.close_to_tray_toggle.setEnabled(tray_available)
@@ -957,10 +1111,12 @@ class Assistant(QObject):
             self.history.desktop_status.setText("This desktop has no system tray. Closing the dashboard will quit Neyra.")
         self.history.engine_choice.currentIndexChanged.connect(self.prepare_selected_engine)
         self.hotkeys = None
+        self.hotkeys_available = False
+        self.overlay.text = f"Hold {shortcut_label(self.history.shortcuts, 'dictation')} to dictate"
         if not is_wayland():
             try:
                 from .hotkeys import Hotkeys
-                self.hotkeys = Hotkeys()
+                self.hotkeys = Hotkeys(self.history.shortcuts)
                 self.hotkeys.hold_start.connect(self.start)
                 self.hotkeys.hold_stop.connect(self.stop_dictation)
                 self.hotkeys.toggle.connect(self.toggle)
@@ -970,10 +1126,12 @@ class Assistant(QObject):
                 self.hotkeys.assistant_stop.connect(self.stop_assistant)
                 self.hotkeys.selection_requested.connect(self.assistant_features.capture_selection)
                 self.hotkeys.start()
+                self.hotkeys_available = True
             except Exception as exc:
                 self.overlay.text = f"Hotkeys unavailable: {exc}. Use tray menu."
         else:
             self.overlay.text = "Wayland: use tray menu; compositor shortcuts can be configured externally"
+        self.history.shortcut_panel.apply_requested.connect(self.apply_shortcut_settings)
         self.prepare_selected_engine()
         self.update_controls()
         self.reminder_timer.start()
@@ -984,6 +1142,63 @@ class Assistant(QObject):
             self.engine.prepare_whistle()
         else:
             self.engine.prepare_voz()
+
+    def apply_shortcut_settings(self, bindings):
+        if self.closing:
+            return
+        settings = self.history.settings
+        existed = settings.contains("shortcuts")
+        saved = settings.value("shortcuts")
+        writing = False
+        def persist(canonical):
+            nonlocal writing
+            writing = True
+            settings.setValue("shortcuts", json.dumps(canonical))
+            settings.sync()
+            if settings.status() != QSettings.Status.NoError:
+                raise OSError("Settings could not be saved. Check file access and disk space.")
+        try:
+            if self.recording or self.processing or self.notetaker_active:
+                raise ValueError("Finish the current recording before changing shortcuts.")
+            canonical = validate_bindings(bindings)
+            if self.hotkeys:
+                self.hotkeys.set_bindings(canonical, persist=lambda: persist(canonical))
+            else:
+                persist(canonical)
+            self.history.set_shortcut_hints(canonical)
+            for action, value in canonical.items():
+                self.history.shortcut_panel.fields[action].setText(value)
+            message = ("Shortcuts saved and applied." if self.hotkeys_available else
+                       "Shortcuts saved. Global shortcuts are unavailable in this session; use the app controls.")
+            self.history.shortcut_panel.status.setText(message)
+            if self.overlay.state == "Ready" and not is_wayland():
+                self.overlay.text = f"Hold {shortcut_label(canonical, 'dictation')} to dictate"
+        except (ValueError, OSError) as exc:
+            if writing:
+                try:
+                    settings.setValue("shortcuts", saved) if existed else settings.remove("shortcuts")
+                    settings.sync()
+                except OSError:
+                    pass
+            self.history.shortcut_panel.status.setText(f"Shortcuts not changed: {exc}")
+
+    def restore_data(self, payload):
+        if self.closing:
+            return
+        if (self.recording or self.processing or self.notetaker_active or self._meeting_audio is not None
+                or self.assistant_features.job.running):
+            self.history.data_panel.status.setText("Finish recordings and assistant requests before restoring a backup.")
+            return
+        from .data_transfer import restore_backup
+        try:
+            restore_backup(self.history.settings, payload)
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.history.data_panel.status.setText(f"Restore failed: {exc}")
+            return
+        try:
+            self.cleanup()
+        finally:
+            self.quit()
 
     def create_microphone(self, chunks, level):
         device = self.history.selected_microphone()
@@ -1048,7 +1263,7 @@ class Assistant(QObject):
         if self.active_mode == "assistant" and (self.recording or self.processing):
             label = "Listening for a command" if self.recording else "Transcribing command"
             self.history.capture.title.setText(label)
-            self.history.capture.detail.setText("Release Ctrl + Alt + A when you finish speaking.")
+            self.history.capture.detail.setText(f"Release {shortcut_label(self.history.shortcuts, 'assistant')} when you finish speaking.")
         self.tray_status.setText(label)
         self.tray.setToolTip(f"Neyra · {label}")
 
@@ -1150,8 +1365,28 @@ class Assistant(QObject):
     @Slot(str)
     def remove_reminder(self, identity):
         if self.reminder_store.remove(identity):
+            self._reminders_in_flight.discard(identity)
             self.history.reminders.refresh(self.reminder_store.records)
             self.history.reminders.status.setText("Reminder removed.")
+
+    def snooze_reminder(self, identity, preset):
+        try:
+            deadline = snooze_deadline(preset)
+            if self.reminder_store.snooze(identity, deadline):
+                self._reminders_in_flight.discard(identity)
+                self.history.reminders.refresh(self.reminder_store.records)
+                self.history.reminders.status.setText(f"Snoozed until {due_label(deadline)}.")
+        except (ValueError, OSError) as exc:
+            self.history.reminders.status.setText(f"Could not snooze reminder: {exc}")
+
+    def complete_reminder(self, identity):
+        try:
+            if self.reminder_store.complete(identity):
+                self._reminders_in_flight.discard(identity)
+                self.history.reminders.refresh(self.reminder_store.records)
+                self.history.reminders.status.setText("Reminder marked done.")
+        except OSError as exc:
+            self.history.reminders.status.setText(f"Could not complete reminder: {exc}")
 
     @Slot()
     def check_reminders(self):
@@ -1163,18 +1398,23 @@ class Assistant(QObject):
         self.history.reminders.status.setText(f"{len(due)} reminder{'s are' if len(due) != 1 else ' is'} due. See Recent reminders below.")
         identities = [record["id"] for record in due]
         self._reminders_in_flight.update(identities)
-        acknowledged = lambda: self.reminder_notification_sent(identities)
+        deadlines = {record["id"]: record["due_at"] for record in due}
+        acknowledged = lambda: self.reminder_notification_sent(identities, deadlines)
         if len(due) == 1:
-            self.show_notification("Neyra reminder", due[0]["text"], on_shown=acknowledged)
+            self.show_notification("Neyra reminder", due[0]["text"] + "\nOpen Reminders to snooze or mark done.", on_shown=acknowledged)
         else:
             message = "\n".join(record["text"][:200] for record in due[:3])
             if len(due) > 3:
                 message += "\nOpen Reminders to see all of them."
             self.show_notification(f"Neyra · {len(due)} reminders due", message, on_shown=acknowledged)
 
-    def reminder_notification_sent(self, identities):
+    def reminder_notification_sent(self, identities, deadlines=None):
         if self.closing:
             return
+        if deadlines is not None:
+            identities = [record["id"] for record in self.reminder_store.records
+                          if record["id"] in deadlines and record["due_at"] == deadlines[record["id"]]
+                          and record["status"] == "pending"]
         self._reminders_in_flight.difference_update(identities)
         self.reminder_store.mark_fired(identities)
         self.history.reminders.refresh(self.reminder_store.records)
@@ -1214,6 +1454,7 @@ class Assistant(QObject):
         if self.closing:
             return
         alert = ReminderAlert(title, message)
+        alert.open_requested.connect(self.show_reminders)
         self.notification_alerts.append(alert)
         alert.finished.connect(lambda _result: self.notification_alerts.remove(alert))
         alert.show()
@@ -1228,6 +1469,13 @@ class Assistant(QObject):
         if self.recording:
             self.history.capture.meter.set_level(value)
 
+    @Slot(bool)
+    def change_recording_mute(self, enabled):
+        if self.recording and enabled:
+            self.speaker_mute.begin()
+        elif not enabled:
+            self.speaker_mute.end()
+
     @Slot()
     def start(self, mode="dictation"):
         if self.closing or self.recording or self.notetaker_active:
@@ -1240,7 +1488,10 @@ class Assistant(QObject):
         self.paste_timer.stop()
         self.feedback_timer.stop()
         self.stop_microphone_test()
-        self.assistant_features.stop_speech()
+        if mode == "assistant":
+            self.assistant_features.interrupt_voice()
+        else:
+            self.assistant_features.stop_speech()
         self.active_mode = mode
         self.reminder_command_time = None
         self._paste_on_complete = mode == "dictation" and not self.history.isActiveWindow()
@@ -1253,6 +1504,8 @@ class Assistant(QObject):
         chunks = queue.Queue()
         try:
             self.recorder = self.create_microphone(chunks, self.level_changed.emit)
+            if self.history.mute_while_speaking_toggle.isChecked():
+                self.speaker_mute.begin()
             self.recorder.start()
             self.recording = True
             self.recording_started = time.monotonic()
@@ -1281,6 +1534,8 @@ class Assistant(QObject):
             self.recorder.stop()
         except Exception as exc:
             self.error(str(exc))
+        finally:
+            self.speaker_mute.end()
 
     @Slot()
     def toggle(self):
@@ -1312,7 +1567,7 @@ class Assistant(QObject):
             self.active_mode = "dictation"
             self.update_controls()
             self.history.status_label.setText("Ready to dictate")
-            self.assistant_features.command(text, now=self.reminder_command_time)
+            self.assistant_features.command(text, now=self.reminder_command_time, spoken=True)
             return
         if self.active_mode == "reminder":
             self.active_mode = "dictation"
@@ -1468,6 +1723,7 @@ class Assistant(QObject):
     def error(self, message):
         if self.closing:
             return
+        self.speaker_mute.end()
         if self.recorder and self.recorder.stream:
             try:
                 self.recorder.stop()
@@ -1536,6 +1792,7 @@ class Assistant(QObject):
             except Exception:
                 pass
         self.stop_meeting_capture()
+        self.speaker_mute.close()
         self._meeting_audio = None
         self.engine.close()
         if self.hotkeys:
@@ -1546,6 +1803,7 @@ class Assistant(QObject):
 
 def main():
     app = QApplication(sys.argv)
+    app.setWindowIcon(app_icon())
     # Qt adopts the user's process locale on Unix. Keep C numeric formatting
     # locale-independent for JSON emitted by the native Whistle engine.
     locale.setlocale(locale.LC_NUMERIC, "C")

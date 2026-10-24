@@ -1,5 +1,6 @@
 """Synthetic OAuth, credential storage, and streaming protocol checks."""
 import io
+import hashlib
 import errno
 import json
 import os
@@ -334,8 +335,60 @@ class ChatGPTTests(unittest.TestCase):
         self.assertEqual(request.full_url, RESOURCE + "/responses")
         self.assertEqual(json.loads(request.data), {"model": "gpt-6-luna", "reasoning": {"effort": "low"},
                          "instructions": "instructions", "input": [{"role": "user", "content": "input"}],
-                         "store": False, "stream": True})
+                         "store": False, "stream": True, "max_output_tokens": 4096,
+                         "prompt_cache_key": "neyra:" + hashlib.sha256(b"account").hexdigest()[:32]})
         self.assertTrue(response.closed)
+
+    def test_completed_response_records_usage_for_the_request_account(self):
+        self.save_account()
+        usage = {"input_tokens": 120, "input_tokens_details": {"cached_tokens": 80}, "output_tokens": 35, "total_tokens": 155}
+        response = stream({"type": "response.output_text.delta", "delta": "Done"},
+                          {"type": "response.completed", "response": {"id": "response-1", "usage": usage}})
+        notified = []
+        self.client.on_usage = lambda: notified.append(True)
+        with patch.object(self.client._opener, "open", return_value=response):
+            self.assertEqual(self.client.respond("", "", self.cancel, lambda _: None), "Done")
+        counts = self.client.analytics.snapshot("account")
+        self.assertEqual(counts["total_tokens"], 155)
+        self.assertEqual(counts["cached_input_tokens"], 80)
+        self.assertEqual(counts["requests"], 1)
+        self.assertEqual(notified, [True])
+        self.client._record_usage("account", {"id": "response-1", "usage": usage})
+        self.assertEqual(self.client.analytics.snapshot("account")["requests"], 1)
+        self.assertEqual(self.client.analytics.snapshot("different-account")["total_tokens"], 0)
+
+    def test_token_tracking_failure_does_not_fail_inference(self):
+        self.save_account()
+        response = stream({"type": "response.completed", "response": {
+            "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}}})
+        with patch.object(self.client._opener, "open", return_value=response), patch.object(self.client.analytics, "record", side_effect=OSError("disk full")):
+            self.assertEqual(self.client.respond("", "", self.cancel, lambda _: None), "")
+        self.assertIn("incomplete", self.client.usage_error)
+
+    def test_failed_terminal_usage_is_counted_without_marking_response_success(self):
+        self.save_account()
+        response = stream({"type": "response.incomplete", "response": {
+            "id": "incomplete-1", "usage": {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12}}})
+        with patch.object(self.client._opener, "open", return_value=response), self.assertRaises(ChatGPTError):
+            self.client.respond("", "", self.cancel, lambda _: None)
+        self.assertEqual(self.client.analytics.snapshot("account")["total_tokens"], 12)
+
+    def test_output_limits_validate_and_cache_key_is_stable_and_account_scoped(self):
+        self.save_account()
+        keys = []
+        for _ in range(2):
+            response = stream({"type": "response.completed"})
+            with patch.object(self.client._opener, "open", return_value=response) as opened:
+                self.client.respond("same prefix", "changing suffix", self.cancel, lambda _: None, max_output_tokens=2048)
+            payload = json.loads(opened.call_args.args[0].data)
+            keys.append(payload["prompt_cache_key"])
+            self.assertEqual(payload["max_output_tokens"], 2048)
+            self.assertFalse(payload["store"])
+            self.assertNotIn("prompt_cache_options", payload)
+        self.assertEqual(keys[0], keys[1])
+        for limit in (True, 0, 32769):
+            with self.assertRaises(ValueError):
+                self.client.respond("", "", self.cancel, lambda _: None, max_output_tokens=limit)
 
     def test_partial_text_does_not_make_truncated_or_failed_stream_successful(self):
         self.save_account()

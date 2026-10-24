@@ -34,6 +34,12 @@ class DesktopFeatures(unittest.TestCase):
         self.assertEqual(combo.toolTip(), label)
 
     def setUp(self):
+        speech = patch("neyra.assistant_features.PiperSpeech")
+        speech.start()
+        self.addCleanup(speech.stop)
+        mute = patch("neyra.main.SpeakerMute")
+        mute.start()
+        self.addCleanup(mute.stop)
         folder = tempfile.TemporaryDirectory(prefix="neyra-desktop-")
         self.addCleanup(folder.cleanup)
         QSettings.setDefaultFormat(QSettings.Format.IniFormat)

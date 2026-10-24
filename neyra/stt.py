@@ -47,7 +47,7 @@ class Transcriber(QObject):
         if self._closed:
             return
         if self._whistle_ready.is_set() and self._whistle_load_error is None:
-            self.model_status.emit("whistle", "ready", "Whistle is ready. English recognition runs locally on the CPU.", 100)
+            self.model_status.emit("whistle", "ready", "Whistle is ready. English recognition runs on your PC.", 100)
             return
         with self._whistle_start_lock:
             if self._closed or (self._whistle_ready.is_set() and self._whistle_load_error is None):
@@ -56,7 +56,7 @@ class Transcriber(QObject):
                 return
             self._whistle_ready.clear()
             self._whistle_load_error = None
-            self.model_status.emit("whistle", "loading", "Loading Whistle on the CPU...", -1)
+            self.model_status.emit("whistle", "loading", "Loading Whistle on your PC...", -1)
 
             def load():
                 try:
@@ -64,7 +64,7 @@ class Transcriber(QObject):
                     configure_bundled_runtime()
                     import needle
                     needle.Whistle()
-                    self.model_status.emit("whistle", "ready", "Whistle is ready. English recognition runs locally on the CPU.", 100)
+                    self.model_status.emit("whistle", "ready", "Whistle is ready. English recognition runs on your PC.", 100)
                 except Exception as exc:
                     self._whistle_load_error = exc
                     self.model_status.emit("whistle", "error", f"Whistle could not load: {exc}", -1)

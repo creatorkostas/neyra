@@ -16,6 +16,7 @@ dependencies = [
     "pyperclip>=1.8",
     "soundcard>=0.4.6",
     "PyJWT[crypto]>=2.10,<3",
+    "piper-tts>=1.8,<2",
 ]
 
 [project.scripts]

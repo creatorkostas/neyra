@@ -25,6 +25,9 @@ import uuid
 
 import jwt
 
+from .analytics import AnalyticsStore
+
+
 ISSUER = "https://auth.openai.com"
 RESOURCE = "https://api.openai.com/v1"
 MODEL = "gpt-6-luna"
@@ -104,6 +107,9 @@ class ChatGPTClient:
         self._opener = build_opener(_NoRedirect())
         self._discovery_cache = None
         self._sessions = set()
+        self.analytics = AnalyticsStore(self.storage_dir / "usage.json")
+        self.on_usage = None
+        self.usage_error = ""
         with self._locked():
             data = self._load()
             if not data.get("host_id"):
@@ -446,7 +452,7 @@ class ChatGPTClient:
             self._save(data)
         return record["label"]
 
-    def _access(self, cancel):
+    def _access(self, cancel, with_account=False):
         with self._locked(cancel):
             data = self._load()
             account_id = data.get("active_id")
@@ -465,7 +471,7 @@ class ChatGPTClient:
                 self._save(data)
             if DIRECT_SCOPE not in record.get("scopes", []):
                 raise ChatGPTError("ChatGPT plan usage permission is missing. Sign in again.")
-            return record["access_token"]
+            return (record["access_token"], account_id) if with_account else record["access_token"]
 
     def sign_out(self):
         # Stop this client's current streams before revoking the active session.
@@ -500,15 +506,34 @@ class ChatGPTClient:
             return "Signed out of ChatGPT."
         return "Signed out locally. Remote revocation was not confirmed; disconnect Neyra in ChatGPT Settings."
 
-    def respond(self, instructions: str, input_text: str, cancel: threading.Event, on_delta) -> str:
+    def _record_usage(self, account_id, response):
+        usage = response.get("usage")
+        if not isinstance(usage, dict):
+            return
+        try:
+            self.analytics.record(account_id, usage, request_id=response.get("id"))
+            self.usage_error = ""
+        except (OSError, ValueError):
+            self.usage_error = "Token tracking could not be saved. Counts may be incomplete."
+        if self.on_usage:
+            try:
+                self.on_usage()
+            except Exception:
+                pass
+
+    def respond(self, instructions: str, input_text: str, cancel: threading.Event, on_delta, *, max_output_tokens=4096) -> str:
+        if not isinstance(max_output_tokens, int) or isinstance(max_output_tokens, bool) or not 128 <= max_output_tokens <= 32768:
+            raise ValueError("Invalid response token limit.")
         with self._sessions_mutex:
             self._sessions.add(cancel)
         try:
-            token = self._access(cancel)
+            token, account_id = self._access(cancel, with_account=True)
             payload = {"model": MODEL, "reasoning": {"effort": "low"},
                        "instructions": instructions,
                        "input": [{"role": "user", "content": input_text}],
-                       "store": False, "stream": True}
+                       "store": False, "stream": True,
+                       "max_output_tokens": max_output_tokens,
+                       "prompt_cache_key": "neyra:" + hashlib.sha256(account_id.encode()).hexdigest()[:32]}
             request = Request(RESOURCE + "/responses", data=json.dumps(payload).encode(),
                               headers={"Authorization": "Bearer " + token,
                                        "Content-Type": "application/json", "Accept": "text/event-stream"})
@@ -548,10 +573,13 @@ class ChatGPTClient:
                         final_response = event.get("response", {})
                         if not isinstance(final_response, dict) or final_response.get("status", "completed") != "completed":
                             raise ChatGPTError("ChatGPT did not complete the response.")
+                        self._record_usage(account_id, final_response)
                         completed = True
                         break
                     elif kind in {"response.failed", "response.incomplete", "error"}:
                         failed_response = event.get("response")
+                        if isinstance(failed_response, dict):
+                            self._record_usage(account_id, failed_response)
                         error = ((failed_response.get("error") if isinstance(failed_response, dict) else None)
                                  or event.get("error") or event)
                         if not isinstance(error, dict):

@@ -80,8 +80,7 @@ global hotkeys or universal compositor support. Check the actual desktop session
 Optional `libnotify` supplies `notify-send` for desktop reminder notifications when
 the session has no tray icon. Neyra uses an in-app alert if no notification backend works.
 Assistant playback commands use optional `playerctl`. Volume commands use `wpctl`
-from WirePlumber or `pactl`. Spoken daily briefings need `speech-dispatcher` and an
-installed voice; Qt's speech plugins are bundled. Check these on the target desktop.
+from WirePlumber or `pactl`. Piper speech is bundled and downloads its English voice on first use. Check these on the target desktop.
 
 ## Submit manually to the AUR
 

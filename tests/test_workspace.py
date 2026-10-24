@@ -29,7 +29,7 @@ class WorkspaceTests(unittest.TestCase):
             self.assertTrue(self.window.nav_buttons[0].isChecked())
         self.window.show_page(3)
         self.assertTrue(self.window.nav_buttons[6].isChecked())
-        self.assertEqual(self.window.summary_card.parent(), self.window.pages.widget(2))
+        self.assertNotIn(2, self.window.context_buttons)
 
     def test_home_tracks_note_addition_deletion_and_reminder_states(self):
         record = self.window.add_transcript("A fresh thought to keep")

@@ -28,6 +28,12 @@ QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, SETTING
 
 class RegressionTests(unittest.TestCase):
     def setUp(self):
+        speech = patch("neyra.assistant_features.PiperSpeech")
+        speech.start()
+        self.addCleanup(speech.stop)
+        mute = patch("neyra.main.SpeakerMute")
+        mute.start()
+        self.addCleanup(mute.stop)
         QSettings(QSettings.Format.IniFormat, QSettings.Scope.UserScope, "Neyra", "Neyra").clear()
         for target in ("neyra.stt.Transcriber.prepare_whistle", "neyra.stt.Transcriber.prepare_voz"):
             patcher = patch(target)
@@ -101,13 +107,12 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(expand_snippets("Home address", {"address": "short", "home address": "long"}), "long")
         self.assertEqual(expand_snippets("İ", {"i": "match"}), "match")
 
-    def test_history_retention_search_delete_and_speed(self):
+    def test_history_retention_search_and_delete(self):
         dashboard = HistoryDashboard()
         self.addCleanup(dashboard.close)
         dashboard.records = [{"text": "old", "time": "2026-10-18T10:00:00"}] * 500
         dashboard.add_transcript("four words for speed", duration=2)
         self.assertEqual(len(dashboard.records), 500)
-        self.assertIn(">120</span> wpm", dashboard.count_stat.text())
         dashboard.items.refresh(query="speed")
         self.assertEqual(dashboard.items.query, "speed")
         record = dashboard.records[-1]

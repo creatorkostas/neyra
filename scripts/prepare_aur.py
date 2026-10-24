@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "packaging" / "aur"
-LOCAL_SOURCES = ("neyra", "neyra.desktop", "neyra.svg", "LICENSE")
+LOCAL_SOURCES = ("neyra", "neyra.desktop", "neyra.svg", "LICENSE", "Piper-COPYING.txt", "ONNXRuntime-LICENSE.txt")
 
 
 def sha256(path):
@@ -34,8 +34,11 @@ def prepare(version, archive, output):
     if package_dir.exists():
         raise ValueError(f"refusing to overwrite existing package directory: {package_dir}")
 
+    license_files = {"LICENSE": ROOT / "LICENSE",
+                     "Piper-COPYING.txt": ROOT / "packaging/licenses/Piper-COPYING.txt",
+                     "ONNXRuntime-LICENSE.txt": ROOT / "packaging/licenses/ONNXRuntime-LICENSE.txt"}
     sources = {
-        name: (ROOT / "LICENSE" if name == "LICENSE" else TEMPLATE / name).read_text(
+        name: license_files.get(name, TEMPLATE / name).read_text(
             encoding="utf-8"
         ).encode("utf-8")
         for name in LOCAL_SOURCES
@@ -51,7 +54,7 @@ def prepare(version, archive, output):
         ("pkgdesc", "Local desktop dictation assistant with Whistle and Voz (prebuilt)"),
         ("arch", ["x86_64"]),
         ("url", "https://github.com/creatorkostas/neyra"),
-        ("license", ["MIT"]),
+        ("license", ["MIT", "GPL-3.0-or-later"]),
         ("depends", [
             "glibc", "gcc-libs", "nodejs>=22", "portaudio", "libpulse", "alsa-lib",
             "dbus", "fontconfig", "freetype2", "glib2", "libgl", "libx11", "libxcb",
@@ -60,7 +63,6 @@ def prepare(version, archive, output):
             "xcb-util-renderutil", "xcb-util-wm", "zlib", "xclip",
         ]),
         ("optdepends", [
-            "speech-dispatcher: read daily briefings aloud with a system voice",
             "playerctl: assistant media playback commands",
             "wireplumber: assistant volume controls through wpctl",
             "libnotify: desktop reminder notifications without a system tray",

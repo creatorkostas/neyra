@@ -24,11 +24,31 @@ APP = QApplication.instance() or QApplication([])
 
 class MeetingTests(unittest.TestCase):
     def setUp(self):
+        speech = patch("neyra.assistant_features.PiperSpeech")
+        speech.start()
+        self.addCleanup(speech.stop)
+        mute = patch("neyra.main.SpeakerMute")
+        mute.start()
+        self.addCleanup(mute.stop)
         self.settings_dir = tempfile.TemporaryDirectory(prefix="neyra-meetings-")
         self.addCleanup(self.settings_dir.cleanup)
         QSettings.setDefaultFormat(QSettings.Format.IniFormat)
         QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, self.settings_dir.name)
         QSettings(QSettings.Format.IniFormat, QSettings.Scope.UserScope, "Neyra", "Neyra").clear()
+        # Assistant startup preloads models; these GUI tests must never run native inference.
+        for method in ("prepare_whistle", "prepare_voz"):
+            patcher = patch(f"neyra.stt.Transcriber.{method}")
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_meeting_controller_does_not_launch_native_model_loaders(self):
+        with patch("neyra.hotkeys.Hotkeys.start"), patch("neyra.main.QSystemTrayIcon.show"), \
+                patch("threading.Thread.start") as start_thread:
+            assistant = Assistant(APP)
+        self.addCleanup(assistant.cleanup)
+        start_thread.assert_not_called()
+        self.assertIsNone(assistant.engine._whistle_thread)
+        self.assertIsNone(assistant.engine._voz_prepare_thread)
 
     def test_speaker_turns_keep_overlap_and_unknown_words(self):
         words = validated_words([
@@ -277,13 +297,34 @@ class MeetingTests(unittest.TestCase):
             (root / "node_modules").mkdir()
             for name in ("model", "engine", "meeting-models", "tools"):
                 (assets / name).mkdir()
-            with patch.object(build, "ROOT", root), patch.object(build, "ASSETS", assets), patch.object(build, "run") as run, patch("neyra.bundled.configure_bundled_runtime"), patch.object(sys, "argv", ["build.py", "--skip-download"]):
+            with patch.object(build, "ROOT", root), patch.object(build, "ASSETS", assets), patch.object(build, "run") as run, patch("neyra.bundled.configure_bundled_runtime"), patch.object(sys, "argv", ["build.py", "--skip-download", "--jobs=12"]):
                 build.main()
             command = run.call_args.args
             included = [arg for arg in command if str(arg).startswith(("--include-data-dir=", "--include-raw-dir="))]
             self.assertEqual({str(arg).rsplit("=", 1)[-1] for arg in included},
-                             {"assets/model", "assets/engine", "assets/meeting-models", "node_modules"})
+                             {"assets/model", "assets/engine", "assets/meeting-models", "node_modules", "licenses"})
+            self.assertIn("--jobs=12", command)
+            self.assertIn("--include-package=piper", command)
+            self.assertIn("--include-package-data=piper", command)
+            self.assertIn("--include-package=onnxruntime", command)
             self.assertFalse(any("tools" in str(arg) for arg in included))
+
+    def test_macos_build_names_the_bundle_without_overriding_its_executable_path(self):
+        from scripts import build
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "node_modules").mkdir()
+            with patch.object(build, "ROOT", root), patch.object(build, "ASSETS", root / "assets"), \
+                    patch.object(build, "run") as run, patch("neyra.bundled.configure_bundled_runtime"), \
+                    patch.object(sys, "platform", "darwin"), patch.object(sys, "argv", ["build.py", "--standalone", "--skip-download"]):
+                build.main()
+            command = run.call_args.args
+            self.assertIn("--macos-create-app-bundle", command)
+            self.assertIn("--standalone", command)
+            self.assertIn("--output-folder-name=Neyra", command)
+            self.assertIn("--macos-app-name=Neyra", command)
+            self.assertIn("--noinclude-dlls=_sounddevice_data/portaudio-binaries/*.dll", command)
+            self.assertFalse(any(arg.startswith("--output-filename=") for arg in command))
 
 
 if __name__ == "__main__":

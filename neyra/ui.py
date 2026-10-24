@@ -26,7 +26,7 @@ PATHS = {
     "dictionary": '<path d="M6 3h9l4 4v14H6zM15 3v5h4M10 12v5h4v-5z"/>',
     "snippets": '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="m8 8 13 13M8 16 21 3"/>',
     "style": '<path d="M3 5h12M9 5v16M16 11h6M19 11v10"/>',
-    "settings": '<path d="m9 3-1 3-3 1v4l2 1-2 2 2 4h3l2 3 3-2 3 1 3-4-2-2 1-3-3-2V5l-4-2-2 2z"/><circle cx="12" cy="12" r="3"/>',
+    "settings": '<path d="M9.17 5.16 L10.59 4.74 L10.09 2.18 L13.91 2.18 L13.41 4.74 L14.83 5.16 L14.83 5.16 L16.14 5.87 L17.59 3.71 L20.29 6.41 L18.13 7.86 L18.84 9.17 L18.84 9.17 L19.26 10.59 L21.82 10.09 L21.82 13.91 L19.26 13.41 L18.84 14.83 L18.84 14.83 L18.13 16.14 L20.29 17.59 L17.59 20.29 L16.14 18.13 L14.83 18.84 L14.83 18.84 L13.41 19.26 L13.91 21.82 L10.09 21.82 L10.59 19.26 L9.17 18.84 L9.17 18.84 L7.86 18.13 L6.41 20.29 L3.71 17.59 L5.87 16.14 L5.16 14.83 L5.16 14.83 L4.74 13.41 L2.18 13.91 L2.18 10.09 L4.74 10.59 L5.16 9.17 L5.16 9.17 L5.87 7.86 L3.71 6.41 L6.41 3.71 L7.86 5.87 L9.17 5.16 Z"/><circle cx="12" cy="12" r="3.1"/>',
     "help": '<circle cx="12" cy="12" r="9"/><path d="M9 8a3 3 0 0 1 6 1c0 2-3 2-3 5M12 17h.01"/>',
     "search": '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',
     "copy": '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 5V3H3v13h2"/>',
@@ -52,6 +52,24 @@ def icon(name, size=20, color="#1b233c"):
     return QIcon(pixmap)
 
 
+def app_icon():
+    """Opaque blue tile keeps the white waveform visible on any desktop theme."""
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+           '<rect x="1" y="1" width="30" height="30" rx="7" fill="#365bd6"/>'
+           '<g transform="translate(5 5) scale(.9167)" fill="none" stroke="white" '
+           'stroke-width="2.4" stroke-linecap="round">' + PATHS["brand"] + '</g></svg>')
+    renderer = QSvgRenderer(QByteArray(svg.encode()))
+    result = QIcon()
+    for size in (16, 20, 24, 32, 48, 64, 128, 256):
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
+        result.addPixmap(pixmap)
+    return result
+
+
 def icon_button(name, tooltip, parent=None):
     button = QPushButton(parent)
     button.setObjectName("iconButton")
@@ -70,7 +88,7 @@ QDialog { background: #f5f6f9; color: #171c2d; font-family: 'Segoe UI'; font-siz
 QDialog#dashboard { background: transparent; }
 QWidget { color: #171c2d; font-family: 'Segoe UI'; font-size: 14px; }
 QLabel { background: transparent; border: none; }
-QFrame#surface { background: #ffffff; border: none; border-top: 1px solid #dde0e7; border-radius: 0; }
+QFrame#surface { background: #ffffff; border: 1px solid #dde0e7; border-radius: 10px; }
 QFrame#sidebar, QWidget#windowBar { background: transparent; border: none; }
 QLabel#heading { font-size: 22px; font-weight: 600; }
 QLabel#brand { font-size: 25px; font-weight: 700; color: #1b233c; }
@@ -115,6 +133,9 @@ QLineEdit:focus, QTextEdit:focus { border-color: #365bd6; }
 QTextEdit:read-only { background: #f6f7f9; }
 QDateTimeEdit { background: white; color: #171c2d; border: 1px solid #d3d6e0; border-radius: 8px; padding: 8px; min-height: 22px; }
 QDateTimeEdit:focus { border-color: #365bd6; }
+QDateTimeEdit { padding-right: 38px; }
+QDateTimeEdit::drop-down { subcontrol-origin: padding; subcontrol-position: top right; width: 34px; border: none; background: transparent; }
+QDateTimeEdit::down-arrow { image: none; width: 0; height: 0; border: none; }
 QComboBox { padding-right: 38px; min-height: 22px; }
 QComboBox:hover { border-color: #b9b1a6; }
 QComboBox:focus, QComboBox:on { border-color: #365bd6; }
@@ -131,9 +152,9 @@ QProgressBar::chunk { background: #365bd6; border-radius: 3px; }
 QMenu { background: white; color: #171c2d; border: 1px solid #dde0e7; padding: 5px; }
 QMenu::item { padding: 7px 18px; }
 QMenu::item:selected { background: #eeeae2; }
-QFrame#captureCard { background: #f0f2f7; border: none; border-radius: 10px; }
-QLabel#captureTitle { color: #171f37; font-size: 19px; font-weight: 600; }
-QLabel#captureDetail { color: #4d5366; font-size: 12px; }
+QFrame#captureCard { background: #202a46; border: none; border-radius: 18px; }
+QLabel#captureTitle { color: #ffffff; font-size: 19px; font-weight: 600; }
+QLabel#captureDetail { color: #c4cce0; font-size: 12px; }
 QLabel#engineBadge { color: #263256; background: #dbdfea; border-radius: 9px; padding: 5px 10px; font-size: 12px; }
 QLabel#engineBadge[state="ready"] { color: #b9c5e9; background: #2c3248; }
 QLabel#engineBadge[state="error"] { color: #ffc3c7; background: #62363e; }
@@ -199,27 +220,6 @@ class InputMeter(QWidget):
             painter.drawRoundedRect(int(i * width), 4, max(2, int(width - 3)), self.height() - 8, 2, 2)
 
 
-class VoiceRing(InputMeter):
-    """A quiet voice indicator driven by real microphone levels."""
-    def __init__(self):
-        super().__init__()
-        self.setMinimumSize(56, 56)
-        self.setMaximumSize(56, 56)
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        ring = self.rect().adjusted(7, 7, -7, -7)
-        painter.setPen(QPen(QColor("#d0d5e2"), 4))
-        painter.drawEllipse(ring)
-        painter.setPen(QPen(QColor("#365bd6"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        painter.drawArc(ring, 90 * 16, -int((30 + self.level * 300) * 16))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#365bd6"))
-        radius = 3 + self.level * 7
-        painter.drawEllipse(self.rect().center(), int(radius), int(radius))
-
-
 class DictationPanel(QFrame):
     toggle_requested = Signal()
     settings_requested = Signal()
@@ -227,41 +227,43 @@ class DictationPanel(QFrame):
     def __init__(self):
         super().__init__()
         self.setObjectName("captureCard")
+        self.shortcut_hint = "Record here, or dictate into another app."
+        self.session_state = "idle"
         box = QVBoxLayout(self)
-        box.setContentsMargins(18, 14, 18, 14)
-        box.setSpacing(8)
-        row = QHBoxLayout()
-        self.meter = VoiceRing()
-        row.addWidget(self.meter)
-        text = QVBoxLayout()
+        box.setContentsMargins(24, 20, 24, 18)
+        box.setSpacing(12)
+        top = QHBoxLayout()
         self.title = QLabel("Ready when you are")
         self.title.setObjectName("captureTitle")
-        self.title.setWordWrap(True)
-        text.addWidget(self.title)
-        self.detail = QLabel("Hold Ctrl + Win to capture a thought, or start here.")
+        top.addWidget(self.title, 1)
+        self.model_badge = QLabel("Whistle · Loading")
+        self.model_badge.setObjectName("engineBadge")
+        top.addWidget(self.model_badge)
+        box.addLayout(top)
+        self.detail = QLabel(self.shortcut_hint)
         self.detail.setObjectName("captureDetail")
         self.detail.setTextFormat(Qt.TextFormat.PlainText)
         self.detail.setWordWrap(True)
-        text.addWidget(self.detail)
-        row.addLayout(text, 1)
+        box.addWidget(self.detail)
+        row = QHBoxLayout()
         self.record_button = QPushButton("Start dictation")
         self.record_button.setObjectName("recordButton")
         self.record_button.clicked.connect(self.toggle_requested.emit)
         row.addWidget(self.record_button)
-        self.microphone_button = icon_button("settings", "Microphone settings")
+        self.meter = InputMeter()
+        self.meter.setProperty("onDark", True)
+        row.addWidget(self.meter, 1)
+        self.microphone_button = QPushButton("Microphone settings")
+        self.microphone_button.setObjectName("textButton")
+        self.microphone_button.setStyleSheet("color: #c4d0f5;")
         self.microphone_button.clicked.connect(self.settings_requested.emit)
         row.addWidget(self.microphone_button)
         box.addLayout(row)
-        meta = QHBoxLayout()
-        self.model_badge = QLabel("Whistle · Loading")
-        self.model_badge.setObjectName("engineBadge")
-        meta.addWidget(self.model_badge)
         self.model_detail = QLabel("Loading the local model...")
         self.model_detail.setObjectName("captureDetail")
         self.model_detail.setTextFormat(Qt.TextFormat.PlainText)
         self.model_detail.setWordWrap(True)
-        meta.addWidget(self.model_detail, 1)
-        box.addLayout(meta)
+        box.addWidget(self.model_detail)
         self.progress = QProgressBar()
         self.progress.setObjectName("modelProgress")
         self.progress.setTextVisible(False)
@@ -269,6 +271,7 @@ class DictationPanel(QFrame):
         box.addWidget(self.progress)
 
     def set_session(self, state, message=None):
+        self.session_state = state
         self.title.setText({"idle": "Ready when you are", "recording": "Listening to you",
                             "processing": "Putting your words together", "error": "Something needs attention",
                             "meeting": "Notetaker is active"}[state])
@@ -277,7 +280,7 @@ class DictationPanel(QFrame):
         self.record_button.setProperty("recording", state == "recording")
         self.record_button.style().unpolish(self.record_button)
         self.record_button.style().polish(self.record_button)
-        detail = message or {"idle": "Hold Ctrl + Win to dictate into another app, or record here.",
+        detail = message or {"idle": self.shortcut_hint,
                                        "recording": "Speak naturally. Stop recording when you finish.",
                                        "processing": "Your recording is being transcribed locally.",
                                        "meeting": "Finish your meeting before starting a dictation.",
@@ -733,7 +736,7 @@ class TranscriptFeed(QScrollArea):
             title.setAlignment(Qt.AlignmentFlag.AlignCenter)
             title.setStyleSheet("font-size: 21px; font-weight: 600;")
             box.addWidget(title)
-            hint = QLabel("Try a different search." if self.query else "Hold Ctrl + Win and start speaking.\nRelease the keys to paste your words into the focused app.")
+            hint = QLabel("Try a different search." if self.query else "Start a recording from Home, or use Dictate to speak into another app.")
             hint.setObjectName("muted")
             hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
             hint.setWordWrap(True)

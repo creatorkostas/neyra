@@ -1,6 +1,6 @@
 """Deterministic relative reminder commands and durable reminder records."""
 
-from datetime import datetime
+from datetime import datetime, time as wall_time, timedelta
 import json
 import math
 import re
@@ -115,8 +115,28 @@ def parse_reminder(command: str, now: float | None = None) -> tuple[str, float]:
         raise ValueError(f"{error} {_EXAMPLE}") from None
 
 
+def snooze_deadline(preset, now=None):
+    """Return a future epoch deadline using the local calendar for tomorrow."""
+    current = time.time() if now is None else now
+    if not _timestamp(current):
+        raise ValueError("The current time is invalid.")
+    try:
+        if preset == "10min":
+            due_at = current + 600
+        elif preset == "tomorrow":
+            tomorrow = datetime.fromtimestamp(current).date() + timedelta(days=1)
+            due_at = datetime.combine(tomorrow, wall_time(9)).timestamp()
+        else:
+            raise ValueError("Choose a supported snooze time.")
+        if not _timestamp(due_at) or due_at <= current:
+            raise ValueError("Choose a reminder time in the future.")
+        return due_at
+    except (OverflowError, OSError):
+        raise ValueError("Choose a reminder time in the future.") from None
+
+
 class ReminderStore:
-    """Persist pending reminders and the most recent 100 fired reminders."""
+    """Persist pending reminders and the most recent 100 nonpending reminders."""
 
     def __init__(self, settings):
         self.settings = settings
@@ -139,7 +159,7 @@ class ReminderStore:
             if (not isinstance(identifier, str) or not re.fullmatch(r"[0-9a-f]{32}", identifier)
                     or identifier in seen or not isinstance(text, str) or not text.strip()
                     or not _timestamp(due_at) or not _timestamp(created_at)
-                    or due_at <= created_at or status not in ("pending", "fired")):
+                    or due_at <= created_at or status not in ("pending", "fired", "done")):
                 continue
             seen.add(identifier)
             self.records.append({"id": identifier, "text": text, "due_at": due_at,
@@ -149,9 +169,9 @@ class ReminderStore:
         self._trim()
 
     def _trim(self):
-        fired = sorted((record for record in self.records if record["status"] == "fired"),
+        recent = sorted((record for record in self.records if record["status"] != "pending"),
                        key=lambda record: record["due_at"], reverse=True)
-        keep = {record["id"] for record in fired[:100]}
+        keep = {record["id"] for record in recent[:100]}
         self.records[:] = [record for record in self.records
                            if record["status"] == "pending" or record["id"] in keep]
 
@@ -187,6 +207,30 @@ class ReminderStore:
         self.records.append(record)
         self._save()
         return record
+
+    def snooze(self, identity, due_at, now=None):
+        """Requeue a pending or delivered reminder without changing its identity."""
+        current = time.time() if now is None else now
+        if not _timestamp(current) or not _timestamp(due_at) or due_at <= current:
+            raise ValueError("Choose a reminder time in the future.")
+        for record in self.records:
+            if record["id"] == identity and record["status"] in ("pending", "fired"):
+                if due_at <= record["created_at"]:
+                    raise ValueError("Choose a reminder time after its creation.")
+                record["due_at"] = due_at
+                record["status"] = "pending"
+                self._save()
+                return True
+        return False
+
+    def complete(self, identity):
+        """Mark a task done separately from acknowledging notification delivery."""
+        for record in self.records:
+            if record["id"] == identity and record["status"] != "done":
+                record["status"] = "done"
+                self._save()
+                return True
+        return False
 
     def remove(self, record_id):
         for index, record in enumerate(self.records):

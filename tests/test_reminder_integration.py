@@ -19,6 +19,12 @@ APP = QApplication.instance() or QApplication([])
 
 class ReminderIntegrationTests(unittest.TestCase):
     def setUp(self):
+        speech = patch("neyra.assistant_features.PiperSpeech")
+        speech.start()
+        self.addCleanup(speech.stop)
+        mute = patch("neyra.main.SpeakerMute")
+        mute.start()
+        self.addCleanup(mute.stop)
         folder = tempfile.TemporaryDirectory(prefix="neyra-reminder-ui-")
         self.addCleanup(folder.cleanup)
         QSettings.setDefaultFormat(QSettings.Format.IniFormat)
@@ -121,7 +127,7 @@ class ReminderIntegrationTests(unittest.TestCase):
             assistant.check_reminders()
             assistant.check_reminders()
             self.assertEqual(notify.call_count, 1)
-            self.assertEqual(notify.call_args.args, ("Neyra reminder", "check the oven"))
+            self.assertEqual(notify.call_args.args, ("Neyra reminder", "check the oven\nOpen Reminders to snooze or mark done."))
             self.assertEqual(reminder["status"], "pending")
             notify.call_args.kwargs["on_shown"]()
         self.assertEqual(reminder["status"], "fired")
@@ -176,7 +182,7 @@ class ReminderIntegrationTests(unittest.TestCase):
         with patch("neyra.main.QSystemTrayIcon.isSystemTrayAvailable", return_value=True), patch("neyra.main.QSystemTrayIcon.supportsMessages", return_value=True), patch.object(assistant.tray, "showMessage") as notification:
             QTest.qWait(150)
         self.assertEqual(notification.call_count, 1)
-        self.assertEqual(notification.call_args.args[:2], ("Neyra reminder", "stretch"))
+        self.assertEqual(notification.call_args.args[:2], ("Neyra reminder", "stretch\nOpen Reminders to snooze or mark done."))
         self.assertEqual(reminder["status"], "fired")
 
     def test_no_notification_backend_opens_nonblocking_alert(self):

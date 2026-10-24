@@ -57,6 +57,7 @@ class GeneratorChecks(unittest.TestCase):
             self.assertEqual(set(archive.getnames()), {
                 "neyra-bin/PKGBUILD", "neyra-bin/.SRCINFO", "neyra-bin/neyra",
                 "neyra-bin/neyra.desktop", "neyra-bin/neyra.svg", "neyra-bin/LICENSE",
+                "neyra-bin/Piper-COPYING.txt", "neyra-bin/ONNXRuntime-LICENSE.txt",
             })
         with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
             prepare("1.2.3", self.archive, self.root / "out")

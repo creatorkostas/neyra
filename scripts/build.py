@@ -36,7 +36,10 @@ def main():
     mode.add_argument("--onefile", action="store_true", help="Single self-extracting executable (default)")
     mode.add_argument("--standalone", action="store_true", help="Directory distribution, useful for debugging")
     parser.add_argument("--skip-download", action="store_true", help="Use previously downloaded assets")
+    parser.add_argument("--jobs", type=int, help="Parallel compiler jobs (default: all CPU cores; negative: leave that many cores free)")
     args = parser.parse_args()
+    if args.jobs == 0:
+        parser.error("--jobs must be a nonzero integer")
     if not args.skip_download:
         prepare_assets()
     else:
@@ -50,15 +53,23 @@ def main():
     command = [sys.executable, "-m", "nuitka",
         "--standalone" if args.standalone else "--onefile",
         "--enable-plugin=pyside6",
-        "--include-qt-plugins=texttospeech",
+        "--include-package=piper",
+        "--include-package-data=piper",
+        "--include-package=onnxruntime",
+        "--include-package-data=onnxruntime",
+        "--include-data-dir=packaging/licenses=licenses",
         "--include-package=needle",
         "--include-package=neyra",
         "--include-package-data=soundcard",
         "--include-data-files=neyra/voz_transcribe.mjs=neyra/voz_transcribe.mjs",
         f"--include-raw-dir={node_modules}=node_modules",
-        "--output-dir=dist", f"--output-filename={name}",
+        "--output-dir=dist",
         "--assume-yes-for-downloads",
     ]
+    if args.jobs is not None:
+        command.append(f"--jobs={args.jobs}")
+    if sys.platform != "darwin":
+        command.append(f"--output-filename={name}")
     # Toolchain installers under assets/tools are development files, not app data.
     for folder in ("model", "engine", "meeting-models"):
         if (ASSETS / folder).is_dir():
@@ -69,6 +80,9 @@ def main():
     elif sys.platform == "darwin":
         command.extend([
             "--macos-create-app-bundle",
+            # output-filename overrides the onefile bundle executable path on macOS.
+            "--output-folder-name=Neyra",
+            "--macos-app-name=Neyra",
             # Nuitka's PortAudio prefix rule also matches Windows DLLs in the wheel.
             "--noinclude-dlls=_sounddevice_data/portaudio-binaries/*.dll",
             "--macos-app-protected-resource=NSMicrophoneUsageDescription:Neyra uses the microphone for local dictation and meeting notes.",

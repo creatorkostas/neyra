@@ -27,6 +27,8 @@ Run the same checks used for pull requests:
 uv run --locked ruff check neyra scripts tests packaging/aur/check_generator.py
 node --check neyra/voz_transcribe.mjs
 node --check website/site.js
+node scripts/check_voz.mjs
+uv run --locked python scripts/check_piper.py
 uv run --locked python -m unittest discover -s tests -v
 uv run --locked python packaging/aur/check_generator.py
 ```

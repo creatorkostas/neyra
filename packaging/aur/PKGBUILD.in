@@ -8,4 +8,6 @@ package() {
   install -Dm644 "${srcdir}/neyra.desktop" "${pkgdir}/usr/share/applications/neyra.desktop"
   install -Dm644 "${srcdir}/neyra.svg" "${pkgdir}/usr/share/icons/hicolor/scalable/apps/neyra.svg"
   install -Dm644 "${srcdir}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  install -Dm644 "${srcdir}/Piper-COPYING.txt" "${pkgdir}/usr/share/licenses/${pkgname}/Piper-COPYING.txt"
+  install -Dm644 "${srcdir}/ONNXRuntime-LICENSE.txt" "${pkgdir}/usr/share/licenses/${pkgname}/ONNXRuntime-LICENSE.txt"
 }
