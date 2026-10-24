@@ -1,5 +1,6 @@
 """Synthetic OAuth, credential storage, and streaming protocol checks."""
 import io
+import base64
 import hashlib
 import errno
 import json
@@ -27,6 +28,21 @@ class Response(io.BytesIO):
 
 def stream(*events):
     return Response(b"".join(b"data: " + json.dumps(event).encode() + b"\n\n" for event in events))
+
+
+def image_data_url(image_format="PNG"):
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+    from PySide6.QtGui import QImage
+
+    image = QImage(2, 2, QImage.Format.Format_RGB32)
+    image.fill(0xff427ac4)
+    encoded = QByteArray()
+    buffer = QBuffer(encoded)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    image.save(buffer, image_format)
+    buffer.close()
+    mime = "jpeg" if image_format == "JPEG" else "png"
+    return f"data:image/{mime};base64," + base64.b64encode(bytes(encoded)).decode("ascii")
 
 
 class ChatGPTTests(unittest.TestCase):
@@ -338,6 +354,45 @@ class ChatGPTTests(unittest.TestCase):
                          "store": False, "stream": True, "max_output_tokens": 4096,
                          "prompt_cache_key": "neyra:" + hashlib.sha256(b"account").hexdigest()[:32]})
         self.assertTrue(response.closed)
+
+    def test_response_image_payload_uses_inline_high_detail_and_preserves_stream_contract(self):
+        self.save_account()
+        for image_format in ("JPEG", "PNG"):
+            image = image_data_url(image_format)
+            response = stream({"type": "response.output_text.delta", "delta": "A synthetic image."},
+                              {"type": "response.completed", "response": {"status": "completed"}})
+            deltas = []
+            with self.subTest(image_format=image_format), patch.object(self.client._opener, "open", return_value=response) as opened:
+                result = self.client.respond("instructions", "Describe this screen", self.cancel, deltas.append,
+                                             image_data_url=image, max_output_tokens=2048)
+            payload = json.loads(opened.call_args.args[0].data)
+            self.assertEqual(payload["input"], [{"role": "user", "content": [
+                {"type": "input_text", "text": "Describe this screen"},
+                {"type": "input_image", "image_url": image, "detail": "high"},
+            ]}])
+            self.assertEqual(payload["model"], "gpt-6-luna")
+            self.assertEqual(payload["max_output_tokens"], 2048)
+            self.assertFalse(payload["store"])
+            self.assertEqual(result, "A synthetic image.")
+            self.assertEqual(deltas, [result])
+            self.assertTrue(response.closed)
+
+    def test_invalid_image_inputs_are_rejected_before_authentication_or_network(self):
+        png = image_data_url()
+        bad_images = (
+            "https://example.test/screen.png", "file:///private/screen.png", "",
+            "data:image/svg+xml;base64,PHN2Zy8+", "data:image/jpeg;base64,not base64!",
+            "data:image/png;base64,", "data:image/png;base64," + base64.b64encode(b"not an image").decode(),
+            png.replace("image/png", "image/jpeg"), png + "\n", png + "=", 42,
+            "data:image/png;base64," + "A" * (6 * 1024 * 1024),
+        )
+        with patch.object(self.client, "_access") as access, patch.object(self.client._opener, "open") as opened:
+            for image in bad_images:
+                with self.subTest(image=str(image)[:65]), self.assertRaises(ValueError):
+                    self.client.respond("", "screen", self.cancel, lambda _: None, image_data_url=image)
+            access.assert_not_called()
+            opened.assert_not_called()
+        self.assertEqual(self.client._sessions, set())
 
     def test_completed_response_records_usage_for_the_request_account(self):
         self.save_account()

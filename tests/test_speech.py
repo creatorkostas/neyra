@@ -60,6 +60,7 @@ class PiperSpeechTests(unittest.TestCase):
         helper.speak("Hello **there**. " + "word " * 250)
         self.assertTrue(ready.wait(2))
         self.assertFalse(errors)
+        self.assertFalse(helper.is_busy)
         self.assertIn("Speaking", statuses)
         self.assertTrue(all(thread is helper._thread for thread in threads))
         self.assertGreater(voice.synthesize.call_count, 2)
@@ -80,7 +81,9 @@ class PiperSpeechTests(unittest.TestCase):
         try:
             helper.speak("Old text.")
             self.assertTrue(entered.wait(1))
+            self.assertTrue(helper.is_busy)
             helper.stop()
+            self.assertFalse(helper.is_busy)
             helper.close()
         finally:
             release.set()
@@ -174,6 +177,150 @@ class PiperSpeechTests(unittest.TestCase):
         self.assertNotIn("print", cleaned)
         self.assertFalse(any(char in cleaned for char in "`*_{}[]()#"))
         self.assertNotIn("example.com", cleaned)
+
+    def test_stream_keeps_waiting_for_late_sentences_and_drains_in_order(self):
+        voice = Mock()
+        voice.synthesize.side_effect = lambda text: iter([text])
+        first_played = threading.Event()
+        self.play.side_effect = lambda chunk, cancel: first_played.set()
+        helper, errors, statuses, ready = self.helper(voice)
+        stream = helper.begin_stream()
+        self.assertTrue(helper.is_busy)
+        self.assertTrue(helper.append_stream(stream, "First sentence."))
+        self.assertTrue(first_played.wait(2))
+        self.assertTrue(helper.is_busy)
+        self.assertFalse(ready.is_set())
+        self.assertTrue(helper.append_stream(stream, "The late second sentence."))
+        self.assertTrue(helper.finish_stream(stream))
+        self.assertFalse(helper.append_stream(stream, "Too late."))
+        self.assertTrue(ready.wait(2))
+        self.assertFalse(helper.is_busy)
+        self.assertEqual([call.args[0] for call in self.play.call_args_list],
+                         ["First sentence.", "The late second sentence."])
+        self.assertEqual(statuses.count("Ready"), 1)
+        self.assertFalse(errors)
+
+    def test_finish_does_not_truncate_queued_speech(self):
+        entered, release = threading.Event(), threading.Event()
+        voice = Mock()
+
+        def synthesize(text):
+            if text == "First.":
+                entered.set()
+                release.wait(2)
+            yield text
+
+        voice.synthesize.side_effect = synthesize
+        helper, errors, _, ready = self.helper(voice)
+        stream = helper.begin_stream()
+        try:
+            helper.append_stream(stream, "First.")
+            self.assertTrue(entered.wait(1))
+            helper.append_stream(stream, "Second.")
+            helper.append_stream(stream, "Third.")
+            helper.finish_stream(stream)
+            self.assertTrue(helper.is_busy)
+            self.assertFalse(ready.is_set())
+        finally:
+            release.set()
+        self.assertTrue(ready.wait(2))
+        self.assertEqual([call.args[0] for call in self.play.call_args_list], ["First.", "Second.", "Third."])
+        self.assertFalse(errors)
+
+    def test_stop_and_new_speech_invalidate_stream_tokens_and_queued_chunks(self):
+        voice = Mock()
+        voice.synthesize.side_effect = lambda text: iter([text])
+        helper, errors, _, ready = self.helper(voice)
+        with helper._condition:
+            stream = helper.begin_stream()
+            helper.append_stream(stream, "Discarded.")
+            helper.stop()
+            self.assertFalse(helper.is_busy)
+            self.assertFalse(helper.append_stream(stream, "Stale."))
+            self.assertFalse(helper.finish_stream(stream))
+            next_stream = helper.begin_stream()
+            helper.append_stream(next_stream, "Also discarded.")
+            helper.speak("Latest speech.")
+            self.assertFalse(helper.append_stream(next_stream, "Stale again."))
+        self.assertTrue(ready.wait(2))
+        self.assertEqual([call.args[0] for call in self.play.call_args_list], ["Latest speech."])
+        self.assertFalse(errors)
+
+    def test_stream_queue_and_total_text_are_bounded_without_truncation(self):
+        voice = Mock()
+        voice.synthesize.side_effect = lambda text: iter([text])
+        helper, errors, _, ready = self.helper(voice)
+        with patch.object(speech, "MAX_STREAM_PENDING", 2), patch.object(speech, "MAX_STREAM_CHARS", 12):
+            with helper._condition:
+                stream = helper.begin_stream()
+                self.assertTrue(helper.append_stream(stream, "First."))
+                self.assertTrue(helper.append_stream(stream, "Next."))
+                self.assertFalse(helper.append_stream(stream, "X"))
+                helper.finish_stream(stream)
+            self.assertTrue(ready.wait(2))
+            ready.clear()
+            with helper._condition:
+                stream = helper.begin_stream()
+                self.assertFalse(helper.append_stream(stream, "x" * 13))
+                self.assertTrue(helper.append_stream(stream, "x" * 12))
+                self.assertFalse(helper.append_stream(stream, "x"))
+                helper.finish_stream(stream)
+            self.assertTrue(ready.wait(2))
+        self.assertEqual([call.args[0] for call in self.play.call_args_list], ["First.", "Next.", "x" * 12])
+        self.assertFalse(errors)
+
+    def test_configure_selects_voice_and_inverse_speed_for_future_speech(self):
+        voice = Mock()
+        voice.synthesize.side_effect = lambda text, **kwargs: iter([text])
+        fake_piper = Mock()
+        helper, errors, _, ready = self.helper(voice)
+        with helper._condition:
+            stream = helper.begin_stream()
+            helper.append_stream(stream, "Old voice.")
+            helper.configure("en_GB-alan-medium", 1.25)
+            self.assertFalse(helper.is_busy)
+            self.assertFalse(helper.append_stream(stream, "Stale."))
+        with patch.dict(sys.modules, {"piper": fake_piper}):
+            helper.speak("New voice.")
+            self.assertTrue(ready.wait(2))
+        fake_piper.SynthesisConfig.assert_called_once_with(length_scale=0.8)
+        self.assertEqual(helper._load_voice.call_args.args[1], "en_GB-alan-medium")
+        voice.synthesize.assert_called_once_with("New voice.", syn_config=fake_piper.SynthesisConfig.return_value)
+        self.assertFalse(errors)
+
+    def test_configure_rejects_unsupported_voice_and_unsafe_speed(self):
+        helper, _, _, _ = self.helper()
+        for voice in ("unknown", "../voice", None, 1):
+            with self.subTest(voice=voice), self.assertRaises(ValueError):
+                helper.configure(voice, 1)
+        for speed in (0.74, 1.51, True, "1", None, float("inf"), float("nan")):
+            with self.subTest(speed=speed), self.assertRaises(ValueError):
+                helper.configure(speech.VOICE, speed)
+        self.assertEqual(helper.voice_id, speech.VOICE)
+        self.assertEqual(helper.speed, 1.0)
+
+    def test_empty_stream_finishes_and_close_rejects_streams(self):
+        helper, _, _, ready = self.helper()
+        stream = helper.begin_stream()
+        self.assertTrue(helper.is_busy)
+        self.assertTrue(helper.finish_stream(stream))
+        self.assertTrue(ready.wait(2))
+        self.assertFalse(helper.is_busy)
+        helper.close()
+        self.assertIsNone(helper.begin_stream())
+        self.assertFalse(helper.append_stream(stream, "Closed."))
+
+    def test_catalog_contains_pinned_english_and_greek_voice_pairs(self):
+        self.assertEqual(len(speech.VOICE_CATALOG), 3)
+        for voice_id, metadata in speech.VOICE_CATALOG.items():
+            self.assertTrue(metadata["label"])
+            self.assertTrue(metadata["sample"])
+            for suffix in (".onnx", ".onnx.json"):
+                size, digest = speech._FILES[voice_id + suffix]
+                self.assertGreater(size, 0)
+                self.assertRegex(digest, r"^[0-9a-f]{64}$")
+            self.assertIn(speech._REVISION, speech._VOICE_URLS[voice_id])
+        self.assertEqual(speech.VOICE_CATALOG["el_GR-rapunzelina-low"]["language"], "el-GR")
 
 
 class VoiceDownloadTests(unittest.TestCase):

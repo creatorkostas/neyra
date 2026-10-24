@@ -1,7 +1,7 @@
 # Neyra architecture
 
 Neyra is a PySide6 desktop application. Local speech engines process recordings;
-optional ChatGPT features receive text only after the user requests it.
+optional ChatGPT features receive requested text context and explicitly requested screen snapshots.
 
 ## Runtime flow
 
@@ -23,18 +23,19 @@ modes route the transcript to their own handlers instead of pasting it.
 Assistant commands first use the bounded local parser. With a connected ChatGPT
 account, unrecognized requests use a cancellable intent job. The model returns
 one canonical command or a clarification; schema validation and the same local
-parser gate dispatch. Intent context excludes note bodies, selected text, and
-executable paths. Interpretation never grants arbitrary code or shell access.
+parser gate dispatch. Intent context includes bounded recent request/answer text when enabled, but
+excludes raw note bodies, selected text, screenshots, and executable paths. Interpretation never grants arbitrary code or shell access.
 
 ## Module ownership
 
 | Area | Files | Responsibility |
 | --- | --- | --- |
 | App lifecycle | `main.py`, `ui.py` | Recording modes, dashboard, overlay, tray, and shutdown |
-| Speech | `speech.py`, `audio.py`, `stt.py`, `bundled.py`, `voz_transcribe.mjs` | Microphone capture, speech workers, bundled models, and the Voz subprocess |
+| Speech | `speech.py`, `reply_stream.py`, `audio.py`, `stt.py`, `bundled.py`, `voz_transcribe.mjs` | Microphone capture, speech workers, bundled models, and the Voz subprocess |
 | Desktop integration | `hotkeys.py`, `shortcuts.py`, `desktop.py`, `speaker_mute.py`, `startup.py` | Validated shortcut preferences and global key events, clipboard/paste, and supported login startup entries |
 | Reminders | `reminders.py`, `reminders_ui.py` | Time parsing, persistence, scheduling, and notifications |
-| Assistant | `assistant_tools.py`, `assistant_features.py`, `assistant_ui.py` | Bounded local commands, reviewed context, background jobs, and assistant panels |
+| Assistant | `assistant_tools.py`, `assistant_features.py`, `assistant_ui.py`, `conversation.py` | Bounded local commands, reviewed context, background jobs, and assistant panels |
+| Screen context | `screen_context.py` | Explicit phrase detection and one-display, memory-only JPEG capture on the GUI thread |
 | ChatGPT | `chatgpt.py` | Neyra-owned OAuth accounts, credential storage, streamed responses, and reported token-usage capture |
 | Result reuse | `response_cache.py` | Bounded, account-scoped, short-lived in-memory reuse of completed read-only assistant results |
 | Analytics | `analytics.py` | Local per-account token counters and saved-note statistics; no note text in token storage |
@@ -50,6 +51,9 @@ All Python files in this table live under `neyra/` unless another path is shown.
 - Piper synthesis and playback use a cancellable worker with pinned first-use
   voice downloads. A new recording stops playback. Spoken response instructions
   apply to user-facing prose, never to the structured command or task protocols.
+  Complete sentences are queued while Responses deltas arrive. The routing JSON
+  decoder exposes only its answer string; raw tool JSON is never synthesized.
+  Voice/speed configuration affects local synthesis, not the ChatGPT request.
 - Keep blocking audio, model, network, and subprocess work off the GUI thread.
   Send UI updates through Qt signals.
 - Keep parsing and local actions in domain modules. UI panels collect inputs;
@@ -59,6 +63,16 @@ All Python files in this table live under `neyra/` unless another path is shown.
   speak results; typed flows retain previews. The intent router may return a
   conversational answer, a bounded command, or a clarification. Creating a
   reminder from an extracted task still requires the user to specify a task/time.
+- Recent conversation is bounded, expires after ten minutes, is scoped to the
+  selected account, and is never written to disk. Forget/account changes clear it.
+- Only explicit spoken screen references trigger capture. Hide the overlay first;
+  keep pixels in memory, send one bounded image, and exclude it from history and
+  response caching. Screen text is untrusted input and cannot authorize actions.
+- Background assistant jobs tag results, text deltas, and login URLs with a run
+  generation. A new voice turn cancels and detaches old cancellable jobs so the
+  microphone can start immediately; stale queued events cannot reach the new turn.
+- Floating voice states use Qt signals. Cancellation invalidates deferred screen
+  captures and command callbacks; cancelled STT completions cannot dispatch tools.
 - Record token usage against the account that supplied the request token. Keep
   local Neyra token counts separate from account-wide quotas; unavailable quota
   percentages must never be estimated from token totals.

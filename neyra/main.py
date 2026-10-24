@@ -9,12 +9,13 @@ from pathlib import Path
 import numpy as np
 from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, QPoint, Signal, QSize, QSettings, QObject, Slot, QProcess
-from PySide6.QtGui import QColor, QPainter, QPen, QAction
+from PySide6.QtGui import QColor, QPainter, QPen, QAction, QFont
 from PySide6.QtWidgets import QApplication, QWidget, QSystemTrayIcon, QMenu, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QPushButton, QFrame, QStackedWidget, QLineEdit, QTableWidget, QTableWidgetItem, QMessageBox, QAbstractItemView, QCheckBox, QScrollArea, QFileDialog
 from .audio import Microphone, input_devices
 from .stt import Transcriber
 from .desktop import insert_text, is_wayland
 from .speaker_mute import SpeakerMute
+from .speech import VOICE, VOICE_CATALOG
 from .analytics import AnalyticsPanel
 from .text_tools import apply_style, expand_snippets
 from .system_audio import SystemAudioRecorder
@@ -64,6 +65,7 @@ def load_records(settings, key):
     return records
 
 class Overlay(QWidget):
+    cancel_requested = Signal()
     start_requested = Signal()
     stop_requested = Signal()
     toggle_requested = Signal()
@@ -71,6 +73,7 @@ class Overlay(QWidget):
     def __init__(self):
         super().__init__()
         self.setFixedSize(410, 128)
+        self.setFont(QFont("Segoe UI", 10))
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
@@ -85,6 +88,29 @@ class Overlay(QWidget):
         self.tick = QTimer(self)
         self.tick.timeout.connect(self.animate)
         self.tick.setInterval(33)
+        self.assistant_mode = False
+        self.action_button = QPushButton("Cancel", self)
+        self.action_button.setGeometry(326, 12, 64, 28)
+        self.action_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.action_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.action_button.setStyleSheet("QPushButton { color: #ffffff; background: #365bd6; border: none; border-radius: 7px; font-size: 12px; padding: 3px; } QPushButton:hover { background: #2949ba; }")
+        self.action_button.clicked.connect(self.cancel_requested.emit)
+        self.action_button.hide()
+
+    def set_assistant_state(self, state, text=""):
+        self.assistant_mode = True
+        self.setAccessibleName("Neyra assistant " + state)
+        self.setAccessibleDescription(text)
+        self.state = state
+        self.text = text
+        self.action_button.setText("Stop" if state == "Speaking" else "Close" if state in ("Ready", "Error") else "Cancel")
+        self.action_button.setAccessibleName(self.action_button.text() + " assistant")
+        self.action_button.show()
+        self.update()
+
+    def set_plain_mode(self):
+        self.assistant_mode = False
+        self.action_button.hide()
 
     def showEvent(self, event):
         self.tick.start()
@@ -106,7 +132,7 @@ class Overlay(QWidget):
         p.setBrush(QColor(24, 31, 55, 248))
         p.drawRoundedRect(self.rect().adjusted(4, 4, -4, -4), 20, 20)
         p.setPen(QColor("#c4d0f5"))
-        p.drawText(20, 26, f"NEYRA   •   {self.state}")
+        p.drawText(20, 30 if self.assistant_mode else 26, f"NEYRA   •   {self.state}")
         for i in range(72):
             x = 20 + i * 5.15
             amp = min(1.0, self.level * 9.0)
@@ -115,7 +141,7 @@ class Overlay(QWidget):
             p.drawLine(int(x), int(66-h/2), int(x), int(66+h/2))
         p.setPen(QColor("#d9dff2"))
         fm = p.fontMetrics()
-        p.drawText(20, 105, fm.elidedText(self.text, Qt.TextElideMode.ElideLeft, 370))
+        p.drawText(20, 105, fm.elidedText(self.text, Qt.TextElideMode.ElideRight if self.assistant_mode else Qt.TextElideMode.ElideLeft, 370))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -540,6 +566,42 @@ class HistoryDashboard(QDialog):
         self.spoken_answers_toggle.setChecked(self.settings.value("spoken_assistant_answers", True, type=bool))
         self.spoken_answers_toggle.toggled.connect(lambda value: self.settings.setValue("spoken_assistant_answers", value))
         spoken.addWidget(self.spoken_answers_toggle)
+        voice_row = QHBoxLayout()
+        voice_row.addWidget(QLabel("Voice"))
+        self.piper_voice_choice = DashboardComboBox()
+        for identity, details in VOICE_CATALOG.items():
+            self.piper_voice_choice.addItem(details["label"], identity)
+        self.piper_voice_choice.setCurrentIndex(max(0, self.piper_voice_choice.findData(self.settings.value("piper_voice", VOICE))))
+        self.piper_voice_choice.setAccessibleName("Piper voice")
+        voice_row.addWidget(self.piper_voice_choice, 1)
+        self.preview_voice_button = QPushButton("Preview voice")
+        voice_row.addWidget(self.preview_voice_button)
+        spoken.addLayout(voice_row)
+        speed_row = QHBoxLayout()
+        speed_row.addWidget(QLabel("Speaking speed"))
+        self.piper_speed_choice = DashboardComboBox()
+        for value in (0.75, 0.9, 1.0, 1.1, 1.25, 1.5):
+            self.piper_speed_choice.addItem(f"{value:g}×" + (" · Normal" if value == 1 else ""), value)
+        try:
+            saved_speed = float(self.settings.value("piper_speed", 1.0))
+        except (TypeError, ValueError):
+            saved_speed = 1.0
+        speed_index = self.piper_speed_choice.findData(saved_speed)
+        self.piper_speed_choice.setCurrentIndex(speed_index if speed_index >= 0 else self.piper_speed_choice.findData(1.0))
+        self.piper_speed_choice.setAccessibleName("Piper speaking speed")
+        speed_row.addWidget(self.piper_speed_choice)
+        speed_row.addStretch()
+        spoken.addLayout(speed_row)
+        self.translation_voice_toggle = QCheckBox("Use a matching voice for supported translations")
+        self.translation_voice_toggle.setChecked(self.settings.value("translation_voice", True, type=bool))
+        self.translation_voice_toggle.toggled.connect(lambda value: self.settings.setValue("translation_voice", value))
+        spoken.addWidget(self.translation_voice_toggle)
+        self.conversation_memory_toggle = QCheckBox("Remember recent conversation for 10 minutes")
+        self.conversation_memory_toggle.setChecked(self.settings.value("conversation_memory", True, type=bool))
+        self.conversation_memory_toggle.toggled.connect(lambda value: self.settings.setValue("conversation_memory", value))
+        spoken.addWidget(self.conversation_memory_toggle)
+        self.clear_conversation_button = QPushButton("Clear conversation")
+        spoken.addWidget(self.clear_conversation_button, 0, Qt.AlignmentFlag.AlignLeft)
 
         account_usage = card("ChatGPT account", "Current plan limits are managed by ChatGPT.")
         self.account_five_hour_usage = QLabel("5-hour · Not connected")
@@ -1032,6 +1094,11 @@ class Assistant(QObject):
         self.paste_timer.setInterval(50)
         self.paste_timer.timeout.connect(self.paste_when_released)
         self.overlay = Overlay()
+        self.overlay.cancel_requested.connect(self.cancel_assistant)
+        self.assistant_overlay_timer = QTimer(self)
+        self.assistant_overlay_timer.setSingleShot(True)
+        self.assistant_overlay_timer.timeout.connect(self.hide_assistant_overlay)
+        self._discard_assistant_transcript = False
         self.level_changed.connect(self.set_level)
         self.recorder = None
         self.engine = Transcriber()
@@ -1080,6 +1147,7 @@ class Assistant(QObject):
         self.history.notetaker.retry_requested.connect(self.process_meeting)
         self.history.notetaker.discard_requested.connect(self.discard_meeting)
         self.assistant_features = AssistantFeatures(self)
+        self.assistant_features.voice_state.connect(self.set_assistant_voice_state)
         self.history.notetaker.followups_requested.connect(self.assistant_features.show_followups)
         self.tray = QSystemTrayIcon(app_icon(), app)
         menu = self.tray_menu = QMenu()
@@ -1298,8 +1366,7 @@ class Assistant(QObject):
 
     @Slot()
     def start_assistant(self):
-        if not self.assistant_features.job.running:
-            self.start("assistant")
+        self.start("assistant")
 
     @Slot()
     def stop_assistant(self):
@@ -1469,6 +1536,33 @@ class Assistant(QObject):
         if self.recording:
             self.history.capture.meter.set_level(value)
 
+    @Slot(str, str)
+    def set_assistant_voice_state(self, state, message):
+        if self.closing or self.recording or (self.processing and self.active_mode == "assistant"):
+            return
+        self.assistant_overlay_timer.stop()
+        self.overlay.set_assistant_state(state, message)
+        self.overlay.show()
+        if state in ("Ready", "Error"):
+            self.assistant_overlay_timer.start(5000 if state == "Error" else 1600)
+
+    def hide_assistant_overlay(self):
+        if not self.recording and not self.processing and not self.assistant_features.job.running and not self.assistant_features.speech_active:
+            self.overlay.hide()
+
+    @Slot()
+    def cancel_assistant(self):
+        if self.closing:
+            return
+        self.assistant_overlay_timer.stop()
+        self.assistant_features.interrupt_voice()
+        if self.active_mode == "assistant" and (self.recording or self.processing):
+            self._discard_assistant_transcript = True
+            if self.recording:
+                self.stop()
+        self.overlay.hide()
+        self.history.status_label.setText("Assistant cancelled")
+
     @Slot(bool)
     def change_recording_mute(self, enabled):
         if self.recording and enabled:
@@ -1481,25 +1575,31 @@ class Assistant(QObject):
         if self.closing or self.recording or self.notetaker_active:
             return
         if self.processing:
-            self.overlay.state = "Transcribing"
+            if mode == "assistant" or self.active_mode == "assistant":
+                self.overlay.set_assistant_state("Thinking", "Finishing the previous audio request...")
+            else:
+                self.overlay.set_plain_mode()
+                self.overlay.state = "Transcribing"
             self.overlay.show()
             return
         self._pending_paste = ""
         self.paste_timer.stop()
         self.feedback_timer.stop()
+        self.assistant_overlay_timer.stop()
         self.stop_microphone_test()
         if mode == "assistant":
             self.assistant_features.interrupt_voice()
         else:
             self.assistant_features.stop_speech()
         self.active_mode = mode
+        self._discard_assistant_transcript = False
+        self.overlay.set_plain_mode()
         self.reminder_command_time = None
         self._paste_on_complete = mode == "dictation" and not self.history.isActiveWindow()
         self.overlay.state = "Reminder" if mode == "reminder" else "Listening"
         self.overlay.text = 'Say "remind me in an hour to..."' if mode == "reminder" else "Speak now..."
         if mode == "assistant":
-            self.overlay.state = "Assistant"
-            self.overlay.text = 'Say "open calculator", "daily briefing", or a command'
+            self.overlay.set_assistant_state("Listening", "Speak naturally. Release the keys when you finish.")
         self.overlay.show()
         chunks = queue.Queue()
         try:
@@ -1518,7 +1618,6 @@ class Assistant(QObject):
 
     @Slot()
     def stop(self):
-        self.overlay.hide()
         if not self.recording: return
         self.recording = False
         if self.active_mode in ("reminder", "assistant"):
@@ -1526,8 +1625,12 @@ class Assistant(QObject):
         self.recording_duration = time.monotonic() - self.recording_started
         self.processing = True
         self.history.status_label.setText("Transcribing...")
-        self.overlay.state = "Transcribing"
-        self.overlay.hide()
+        if self.active_mode == "assistant":
+            self.overlay.set_assistant_state("Thinking", "Understanding your speech...")
+            self.overlay.show()
+        else:
+            self.overlay.state = "Transcribing"
+            self.overlay.hide()
         self.history.input_meter.reset()
         self.update_controls()
         try:
@@ -1546,7 +1649,7 @@ class Assistant(QObject):
 
     @Slot(str)
     def preview(self, text):
-        if self.closing:
+        if self.closing or self._discard_assistant_transcript:
             return
         self.history.status_label.setText("Listening..." if self.recording else "Processing meeting..." if self.active_mode == "notetaker" else "Transcribing..." if self.processing else "Preparing model...")
         self.history.status_label.setToolTip(text)
@@ -1563,6 +1666,12 @@ class Assistant(QObject):
             return
         self.processing = False
         self.history.input_meter.reset()
+        if self._discard_assistant_transcript:
+            self._discard_assistant_transcript = False
+            self.active_mode = "dictation"
+            self.update_controls()
+            self.history.status_label.setText("Assistant cancelled")
+            return
         if self.active_mode == "assistant":
             self.active_mode = "dictation"
             self.update_controls()
@@ -1724,6 +1833,13 @@ class Assistant(QObject):
         if self.closing:
             return
         self.speaker_mute.end()
+        if self._discard_assistant_transcript:
+            self._discard_assistant_transcript = False
+            self.processing = False
+            self.recording = False
+            self.active_mode = "dictation"
+            self.update_controls()
+            return
         if self.recorder and self.recorder.stream:
             try:
                 self.recorder.stop()
@@ -1774,6 +1890,7 @@ class Assistant(QObject):
         if self.closing:
             return
         self.closing = True
+        self.assistant_overlay_timer.stop()
         self.assistant_features.cleanup()
         self.reminder_timer.stop()
         self.feedback_timer.stop()

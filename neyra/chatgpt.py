@@ -6,6 +6,7 @@ intended for a worker thread. Credential-bearing exceptions are not propagated.
 from __future__ import annotations
 
 import base64
+import binascii
 from contextlib import contextmanager
 import ctypes
 import errno
@@ -47,6 +48,39 @@ class ChatGPTCancelled(ChatGPTError):
 def _check(cancel):
     if cancel is not None and cancel.is_set():
         raise ChatGPTCancelled("ChatGPT request cancelled.")
+
+
+def _image_input(image_data_url):
+    """Accept bounded, decodable in-memory JPEG/PNG images, never remote URLs."""
+    if not isinstance(image_data_url, str) or len(image_data_url) > 6 * 1024 * 1024:
+        raise ValueError("Screenshot input must be a bounded JPEG or PNG data URL.")
+    prefix, separator, encoded = image_data_url.partition(",")
+    formats = {"data:image/jpeg;base64": (b"JPEG", b"\xff\xd8\xff"),
+               "data:image/png;base64": (b"PNG", b"\x89PNG\r\n\x1a\n")}
+    if not separator or prefix not in formats:
+        raise ValueError("Screenshot input must be a JPEG or PNG base64 data URL.")
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("Screenshot input contains invalid base64 data.") from exc
+    image_format, signature = formats[prefix]
+    if (not raw or len(raw) > 4 * 1024 * 1024 or not raw.startswith(signature)
+            or base64.b64encode(raw).decode("ascii") != encoded):
+        raise ValueError("Screenshot input is not a valid bounded JPEG or PNG image.")
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+    from PySide6.QtGui import QImageReader
+
+    data = QByteArray(raw)
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.OpenModeFlag.ReadOnly)
+    try:
+        reader = QImageReader(buffer, image_format)
+        size = reader.size()
+        if not size.isValid() or size.width() * size.height() > 16_000_000 or reader.read().isNull():
+            raise ValueError("Screenshot input could not be decoded as a bounded image.")
+    finally:
+        buffer.close()
+    return {"type": "input_image", "image_url": image_data_url, "detail": "high"}
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -521,16 +555,20 @@ class ChatGPTClient:
             except Exception:
                 pass
 
-    def respond(self, instructions: str, input_text: str, cancel: threading.Event, on_delta, *, max_output_tokens=4096) -> str:
+    def respond(self, instructions: str, input_text: str, cancel: threading.Event, on_delta, *, max_output_tokens=4096,
+                image_data_url=None) -> str:
         if not isinstance(max_output_tokens, int) or isinstance(max_output_tokens, bool) or not 128 <= max_output_tokens <= 32768:
             raise ValueError("Invalid response token limit.")
+        content = input_text
+        if image_data_url is not None:
+            content = [{"type": "input_text", "text": input_text}, _image_input(image_data_url)]
         with self._sessions_mutex:
             self._sessions.add(cancel)
         try:
             token, account_id = self._access(cancel, with_account=True)
             payload = {"model": MODEL, "reasoning": {"effort": "low"},
                        "instructions": instructions,
-                       "input": [{"role": "user", "content": input_text}],
+                       "input": [{"role": "user", "content": content}],
                        "store": False, "stream": True,
                        "max_output_tokens": max_output_tokens,
                        "prompt_cache_key": "neyra:" + hashlib.sha256(account_id.encode()).hexdigest()[:32]}

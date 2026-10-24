@@ -2,6 +2,7 @@
 import os
 import json
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import Mock, patch
@@ -371,6 +372,272 @@ class AssistantIntegrationTests(unittest.TestCase):
             self.features.selection_tick()
             command.assert_not_called()
             show.assert_not_called()
+
+    def test_voice_followup_uses_recent_answer_and_forget_clears_it(self):
+        self.connect_intent_account()
+        self.client.respond.return_value = '{"answer":"The best approach is to start small and test."}'
+        self.features.command("How should I start?", spoken=True)
+        self.finish_job()
+        self.client.respond.return_value = '{"answer":"Start small, then test."}'
+        self.features.command("Make that shorter", spoken=True)
+        self.finish_job()
+        sent = json.loads(self.client.respond.call_args.args[1])
+        self.assertEqual(sent["recent_conversation"][0]["answer"], "The best approach is to start small and test.")
+        self.features.command("forget our conversation", spoken=True)
+        self.assertEqual(self.features.conversation.context("connected"), [])
+        self.client.respond.return_value = '{"answer":"A fresh start."}'
+        self.features.command("A new question please", spoken=True)
+        self.finish_job()
+        self.assertEqual(json.loads(self.client.respond.call_args.args[1])["recent_conversation"], [])
+
+    def test_memory_toggle_and_account_switch_remove_previous_answers(self):
+        self.connect_intent_account()
+        self.features.get_client()
+        self.features.conversation.remember("connected", "question", "private answer")
+        self.owner.history.conversation_memory_toggle.setChecked(False)
+        self.assertEqual(self.features.conversation.context("connected"), [])
+        self.client.respond.return_value = '{"answer":"New answer."}'
+        self.features.command("A new question", spoken=True)
+        self.finish_job()
+        self.assertNotIn("recent_conversation", json.loads(self.client.respond.call_args.args[1]))
+        self.assertEqual(self.features.conversation.context("connected"), [])
+        self.owner.history.conversation_memory_toggle.setChecked(True)
+        self.features.conversation.remember("connected", "question", "private answer")
+        self.client.active_id = "other"
+        self.features.command("Another question", spoken=True)
+        self.finish_job()
+        self.assertNotIn("private answer", self.client.respond.call_args.args[1])
+
+    def test_screen_question_sends_one_memory_only_image_without_ui(self):
+        self.connect_intent_account()
+        self.client.respond.return_value = "There is a chart showing rising sales."
+        image = "data:image/jpeg;base64,synthetic-test-image"
+        with patch("neyra.assistant_features.capture_screen", return_value=image) as capture, patch.object(self.owner, "show_history") as show:
+            self.features.command("Based on what I see on the screen, explain the chart", spoken=True)
+            QTest.qWait(150)
+            self.finish_job()
+            capture.assert_called_once()
+            show.assert_not_called()
+        self.client.respond.assert_called_once()
+        self.assertEqual(self.client.respond.call_args.kwargs["image_data_url"], image)
+        self.features.speech.speak.assert_called_with("There is a chart showing rising sales.")
+        memory = self.features.conversation.context("connected")
+        self.assertIn("rising sales", memory[0]["answer"])
+        self.assertNotIn("base64", json.dumps(memory))
+        self.assertEqual(len(self.features.response_cache.entries), 0)
+
+    def test_ordinary_question_and_cancelled_capture_do_not_take_screenshots(self):
+        self.connect_intent_account()
+        self.client.respond.return_value = '{"answer":"A normal answer."}'
+        with patch("neyra.assistant_features.capture_screen") as capture:
+            self.features.command("Explain gravity", spoken=True)
+            self.finish_job()
+            capture.assert_not_called()
+            self.features.command("Explain what is on my screen", spoken=True)
+            self.features.interrupt_voice()
+            QTest.qWait(150)
+            capture.assert_not_called()
+
+    def test_capture_failure_is_spoken_without_sending_a_request(self):
+        self.connect_intent_account()
+        with patch("neyra.assistant_features.capture_screen", side_effect=RuntimeError("Screen permission is required")):
+            self.features.command("What is on my screen?", spoken=True)
+            QTest.qWait(150)
+        self.client.respond.assert_not_called()
+        self.features.speech.speak.assert_called_with("Screen permission is required")
+
+    def test_overlay_follows_recording_thinking_speaking_and_cancels(self):
+        self.owner.engine.run = Mock()
+        with patch("neyra.main.Microphone", return_value=Mock()):
+            self.owner.start("assistant")
+            self.assertEqual(self.owner.overlay.state, "Listening")
+            self.assertEqual(self.owner.overlay.action_button.text(), "Cancel")
+            self.owner.stop()
+            self.assertEqual(self.owner.overlay.state, "Thinking")
+            self.owner.overlay.action_button.click()
+            self.assertTrue(self.owner._discard_assistant_transcript)
+            with patch.object(self.features, "command") as command:
+                self.owner.complete("open calculator")
+                command.assert_not_called()
+        self.features.speak_answer("Hello there")
+        self.features.speech.is_busy = True
+        self.features.handle_speech_status("Speaking")
+        self.assertEqual(self.owner.overlay.state, "Speaking")
+        self.assertEqual(self.owner.overlay.action_button.text(), "Stop")
+        self.owner.overlay.action_button.click()
+        self.features.speech.stop.assert_called()
+        self.assertFalse(self.owner.overlay.isVisible())
+
+    def test_editing_a_note_query_keeps_recent_conversation(self):
+        self.connect_intent_account()
+        self.features.get_client()
+        self.features.conversation.remember("connected", "question", "recent answer")
+        self.panel.question.setText("a different note question")
+        self.assertEqual(self.features.conversation.context("connected")[0]["answer"], "recent answer")
+        self.assertEqual(self.features.sources, [])
+
+    def test_clarification_from_another_account_is_not_sent(self):
+        self.connect_intent_account()
+        self.client.respond.return_value = '{"clarification":"When?"}'
+        self.features.command("Remind me about private account A details", spoken=True)
+        self.finish_job()
+        self.client.active_id = "other"
+        self.client.accounts.return_value = [{"id": "other", "connected": True, "label": "Other"}]
+        self.client.respond.return_value = '{"answer":"A new answer."}'
+        self.features.command("In an hour", spoken=True)
+        self.finish_job()
+        self.assertNotIn("previous_request", json.loads(self.client.respond.call_args.args[1]))
+
+    def test_reminder_pronoun_is_resolved_from_recent_answer(self):
+        self.connect_intent_account()
+        self.features.get_client()
+        self.features.conversation.remember("connected", "What is my next task?", "Call Alex about the slides.")
+        self.client.respond.return_value = '{"command":"remind me in an hour to call Alex about the slides"}'
+        self.features.command("remind me in an hour to do that", spoken=True)
+        self.finish_job()
+        QTest.qWait(30)
+        self.assertEqual(self.owner.reminder_store.records[0]["text"].casefold(), "call alex about the slides")
+        self.assertIn("Call Alex", self.client.respond.call_args.args[1])
+
+    def test_cancelled_request_does_not_reopen_the_overlay(self):
+        self.features.job_voice = True
+        self.features.job_generation = self.features.voice_generation
+        self.features.job.running = True
+        self.owner.set_assistant_voice_state("Thinking", "Working")
+        self.owner.cancel_assistant()
+        self.features.failed("Cancelled.")
+        self.assertFalse(self.owner.overlay.isVisible())
+
+    def test_streamed_voice_starts_before_model_completion_without_repeating(self):
+        entered, release = threading.Event(), threading.Event()
+        self.panel.selection.setPlainText("A selected passage.")
+        def respond(instructions, text, cancel, on_delta, **kwargs):
+            on_delta("First sentence. ")
+            entered.set()
+            release.wait(3)
+            on_delta("Second sentence.")
+            return "First sentence. Second sentence."
+        self.client.respond.side_effect = respond
+        try:
+            self.features.command("send this text", spoken=True)
+            self.assertTrue(entered.wait(1))
+            for _ in range(100):
+                QTest.qWait(10)
+                if self.features.speech is not None and self.features.speech.append_stream.called:
+                    break
+            speech = self.features.speech
+            self.assertIsNotNone(speech)
+            self.assertTrue(self.features.job.running)
+            self.assertEqual(speech.append_stream.call_args.args[1], "First sentence.")
+        finally:
+            release.set()
+        self.finish_job()
+        self.assertEqual([call.args[1] for call in speech.append_stream.call_args_list], ["First sentence.", "Second sentence."])
+        speech.finish_stream.assert_called_once()
+        speech.speak.assert_not_called()
+        self.client.respond.side_effect = None
+
+    def test_general_json_answer_streams_only_answer_text(self):
+        self.connect_intent_account()
+        def respond(instructions, text, cancel, on_delta, **kwargs):
+            for chunk in ('{"ans', 'wer":"A spoken sentence. ', 'Another sentence."}'):
+                on_delta(chunk)
+            return '{"answer":"A spoken sentence. Another sentence."}'
+        self.client.respond.side_effect = respond
+        self.features.command("Explain something useful", spoken=True)
+        self.finish_job()
+        speech = self.features.speech
+        self.assertEqual([call.args[1] for call in speech.append_stream.call_args_list], ["A spoken sentence.", "Another sentence."])
+        speech.speak.assert_not_called()
+        self.client.respond.side_effect = None
+
+    def test_stop_voice_during_generation_prevents_later_audio_restart(self):
+        entered, release = threading.Event(), threading.Event()
+        self.panel.selection.setPlainText("A selected passage.")
+        def respond(instructions, text, cancel, on_delta, **kwargs):
+            on_delta("First sentence. ")
+            entered.set()
+            release.wait(3)
+            on_delta("Do not read this later sentence.")
+            return "First sentence. Do not read this later sentence."
+        self.client.respond.side_effect = respond
+        try:
+            self.features.command("send this text", spoken=True)
+            self.assertTrue(entered.wait(1))
+            QTest.qWait(30)
+            self.features.stop_speech()
+        finally:
+            release.set()
+        self.finish_job()
+        speech = self.features.speech
+        self.assertEqual([call.args[1] for call in speech.append_stream.call_args_list], ["First sentence."])
+        speech.speak.assert_not_called()
+        self.client.respond.side_effect = None
+
+    def test_voice_preview_speed_and_translation_voice(self):
+        from neyra.speech import VOICE_CATALOG
+        window = self.owner.history
+        greek = "el_GR-rapunzelina-low"
+        window.piper_voice_choice.setCurrentIndex(window.piper_voice_choice.findData(greek))
+        window.piper_speed_choice.setCurrentIndex(window.piper_speed_choice.findData(1.25))
+        window.preview_voice_button.click()
+        self.features.speech.configure.assert_called_with(greek, 1.25)
+        self.features.speech.speak.assert_called_with(VOICE_CATALOG[greek]["sample"])
+        self.assertEqual(window.settings.value("piper_voice"), greek)
+        self.assertEqual(window.settings.value("piper_speed", type=float), 1.25)
+        window.piper_voice_choice.setCurrentIndex(window.piper_voice_choice.findData("en_US-lessac-medium"))
+        self.panel.selection_mode.setCurrentText("Translate")
+        self.panel.language.setText("Greek")
+        self.panel.selection.setPlainText("Hello.")
+        self.client.respond.return_value = "Translated answer."
+        self.features.command("send this text", spoken=True)
+        self.finish_job()
+        self.features.speech.configure.assert_called_with(greek, 1.25)
+
+    def test_actual_assistant_shortcut_interrupts_running_model_and_listens(self):
+        entered, release = threading.Event(), threading.Event()
+        self.panel.selection.setPlainText("A selected passage.")
+        def respond(instructions, text, cancel, on_delta, **kwargs):
+            on_delta("First sentence. ")
+            entered.set()
+            release.wait(3)
+            on_delta("Stale late sentence. ")
+            return "First sentence. Stale late sentence."
+        self.client.respond.side_effect = respond
+        try:
+            self.features.command("send this text", spoken=True)
+            self.assertTrue(entered.wait(1))
+            QTest.qWait(30)
+            speech = self.features.speech
+            with patch("neyra.main.Microphone", return_value=Mock()) as microphone:
+                self.owner.start_assistant()
+                self.assertTrue(self.owner.recording)
+                self.assertEqual(self.owner.active_mode, "assistant")
+                microphone.return_value.start.assert_called_once()
+                self.assertFalse(self.features.job.running)
+                speech.stop.assert_called()
+                self.assertEqual(self.owner.overlay.state, "Listening")
+                release.set()
+                QTest.qWait(50)
+                self.assertEqual([call.args[1] for call in speech.append_stream.call_args_list], ["First sentence."])
+                self.assertTrue(self.owner.recording)
+                self.assertEqual(self.owner.overlay.state, "Listening")
+                self.owner.cancel_assistant()
+                self.owner.complete("discard this audio")
+        finally:
+            release.set()
+            self.client.respond.side_effect = None
+
+    def test_new_voice_request_does_not_cancel_non_cancellable_signout(self):
+        self.features.job.running = True
+        self.features.can_cancel = False
+        self.features.command("show today", spoken=True)
+        self.assertFalse(self.features.job.cancelled.is_set())
+        self.features.finished("Signed out")
+        QTest.qWait(20)
+        self.assertIsNone(self.features.pending_command)
+        self.assertFalse(self.features.job.running)
+        self.assertIn("Your briefing", self.panel.briefing.toPlainText())
 
     def finish_job(self):
         for _ in range(100):
