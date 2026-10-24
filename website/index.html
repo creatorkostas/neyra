@@ -13,8 +13,8 @@
   <link rel="canonical" href="https://creatorkostas.github.io/neyra/">
   <link rel="icon" href="assets/neyra.svg" type="image/svg+xml">
   <link rel="preload" href="assets/manrope.ttf" as="font" type="font/ttf" crossorigin>
-  <link rel="stylesheet" href="styles.css">
-  <script src="site.js" defer></script>
+  <link rel="stylesheet" href="styles.css?v=20261025">
+  <script src="site.js?v=20261025" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -32,9 +32,13 @@
       </div>
       <div class="voice-demo" aria-label="Interactive note illustration">
         <div class="recording-strip">
-          <div class="voice-ring" aria-hidden="true"></div>
-          <div class="recording-heading"><span id="demo-state">Ready for a thought</span><span class="local-label">ON YOUR PC</span></div>
-          <button id="demo-button" type="button">Try the note preview <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+          <div class="recording-heading"><span id="demo-state">Ready when you are</span><span class="local-label">ON YOUR PC</span></div>
+          <p class="recording-detail">Record here, or dictate into another app.</p>
+          <div class="recording-controls">
+            <button id="demo-button" type="button">Try dictation preview</button>
+            <div class="voice-bars" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          </div>
+          <p class="recording-model">Whistle · Ready <span>Your words stay on this PC.</span></p>
           <span class="sr-only" id="demo-announcement" role="status" aria-live="polite"></span>
         </div>
         <div class="demo-window">
@@ -54,13 +58,13 @@
     <section class="assistant-section" id="assistant" aria-labelledby="assistant-heading">
       <div class="wrap">
         <div class="assistant-intro"><h2 id="assistant-heading">A place for your<br>everyday thoughts.</h2><div><p>The development preview brings commands, context, and follow-through into Neyra. AI features connect with your ChatGPT account.</p><p class="release-note">These additions are in development. Check the release notes for the features included in each download.</p></div></div>
-        <figure class="app-figure"><img src="assets/assistant-preview.png" width="1340" height="840" loading="lazy" alt="Neyra Home development preview with a voice ring, recent notes, upcoming reminders, and quick actions."><figcaption>Development preview with illustrative notes. The app shown here may be ahead of the published release.</figcaption></figure>
+        <figure class="app-figure"><img src="assets/assistant-preview.png?v=20261025" width="1340" height="840" loading="lazy" alt="Neyra Home development preview with animated input bars, Dictate and Assistant shortcut hints, Analytics, recent notes, and reminders."><figcaption>Development preview with illustrative notes. The app shown here may be ahead of the published release.</figcaption></figure>
         <div class="feature-list">
-          <article><h3>Ask your computer</h3><p>Open a saved app, adjust the volume, control music, or set a timer. Speak a command with its own shortcut.</p><span>Runs locally</span></article>
-          <article><h3>Understand selected text</h3><p>Capture a selection, review what you're sharing, then ask for an explanation, summary, or translation.</p><span>Optional ChatGPT</span></article>
-          <article><h3>Find what you said</h3><p>Search saved dictations and meetings. Review matching passages before asking ChatGPT about them.</p><span>Optional ChatGPT</span></article>
+          <article><h3>Ask your computer</h3><p>Open a saved app, adjust the volume, control music, or set a timer. Use the assistant shortcut to speak naturally and hear the result.</p><span>Runs locally</span></article>
+          <article><h3>Understand selected text</h3><p>Ask the assistant to explain, summarize, or translate selected text. Voice requests run the tool and read the answer automatically.</p><span>Optional ChatGPT</span></article>
+          <article><h3>Find what you said</h3><p>Search saved dictations and meetings. Ask about your saved notes and hear an answer based on matching passages.</p><span>Optional ChatGPT</span></article>
           <article><h3>Follow up on meetings</h3><p>Extract suggested tasks with supporting quotes. Choose a task and a time to turn it into a reminder.</p><span>Review before saving</span></article>
-          <article><h3>Hear your daily briefing</h3><p>Bring today's local agenda and pending reminders together, then read them aloud with a system voice.</p><span>Runs locally</span></article>
+          <article><h3>Hear your daily briefing</h3><p>Bring today's local agenda and pending reminders together, then hear them with local Piper speech.</p><span>Runs locally</span></article>
         </div>
       </div>
     </section>
