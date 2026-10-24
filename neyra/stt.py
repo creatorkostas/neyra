@@ -277,7 +277,8 @@ class Transcriber(QObject):
             if not node:
                 raise RuntimeError("Voz needs Node.js 20 or newer. Install Node.js, then retry loading the model.")
             project_root = Path(__file__).resolve().parent.parent
-            script = Path(__file__).resolve().parent / "voz_transcribe.mjs"
+            script_dir = project_root / "assets" / "voz" if "__compiled__" in globals() else Path(__file__).resolve().parent
+            script = script_dir / "voz_transcribe.mjs"
             if not script.is_file():
                 raise RuntimeError(f"Voz runner not found: {script}")
             process = subprocess.Popen(

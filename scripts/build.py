@@ -55,13 +55,14 @@ def main():
         "--enable-plugin=pyside6",
         "--include-package=piper",
         "--include-package-data=piper",
+        # Nuitka's ONNX plugin includes native libraries; package data duplicates versioned .so files.
         "--include-package=onnxruntime",
-        "--include-package-data=onnxruntime",
         "--include-data-dir=packaging/licenses=licenses",
         "--include-package=needle",
         "--include-package=neyra",
         "--include-package-data=soundcard",
-        "--include-data-files=neyra/voz_transcribe.mjs=neyra/voz_transcribe.mjs",
+        # macOS names the executable "neyra", so that cannot also be a resource directory.
+        "--include-data-files=neyra/voz_transcribe.mjs=assets/voz/voz_transcribe.mjs",
         f"--include-raw-dir={node_modules}=node_modules",
         "--output-dir=dist",
         "--assume-yes-for-downloads",
