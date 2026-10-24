@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Neyra is an open-source desktop speech-to-text app for Windows and Linux. Hold a shortcut, speak, and paste your words. Speech recognition runs on your CPU.">
+  <meta name="theme-color" content="#f5f2eb">
+  <meta property="og:title" content="Neyra · Speak it. Neyra types it.">
+  <meta property="og:description" content="Local speech recognition for Windows and Linux. A small desktop app with a growing assistant preview.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://creatorkostas.github.io/neyra/">
+  <title>Neyra · Speak it. Neyra types it.</title>
+  <link rel="canonical" href="https://creatorkostas.github.io/neyra/">
+  <link rel="icon" href="assets/neyra.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/manrope.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+  <script src="site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header wrap">
+    <a class="brand" href="#" aria-label="Neyra home"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M3 10v8M8 5v18M13 9v10M18 2v24M23 7v14"/></svg>Neyra</a>
+    <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#assistant">Assistant preview</a><a class="source-link" href="https://github.com/creatorkostas/neyra">GitHub <span aria-hidden="true">↗</span></a></nav>
+  </header>
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-heading">
+      <div class="hero-copy">
+        <h1 id="hero-heading">Speak it.<br><span>Neyra types it.</span></h1>
+        <p class="hero-description">Turn speech into text with a keyboard shortcut. Local recognition on your CPU, ready for the app you're already using.</p>
+        <div class="hero-actions"><a class="button primary" href="#download">Get Neyra <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/></svg></a><a class="underlined" href="https://github.com/creatorkostas/neyra#readme">Read the guide</a></div>
+        <p class="availability">Windows &amp; Linux <span aria-hidden="true">·</span> Open source <span aria-hidden="true">·</span> Early preview</p>
+      </div>
+      <div class="voice-demo" aria-label="Interactive dictation illustration">
+        <div class="demo-window">
+          <div class="window-top"><span class="window-dot"></span><span class="window-dot"></span><span class="window-dot"></span><span>YOUR WORDS, IN TEXT</span></div>
+          <p class="demo-text" id="demo-text">A quick thought.<br>A message to send.<br>One less thing to type.</p>
+          <span class="text-caret" aria-hidden="true"></span>
+          <p class="demo-caption">A text preview. No microphone access.</p>
+        </div>
+        <div class="recording-strip">
+          <div class="recording-heading"><span class="listening-dot" aria-hidden="true"></span><span id="demo-state">Ready when you are</span><span class="local-label">LOCAL STT</span></div>
+          <div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <button id="demo-button" type="button">Try the text preview <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+          <span class="sr-only" id="demo-announcement" role="status" aria-live="polite"></span>
+        </div>
+        <div class="shortcut-caption"><kbd>Ctrl</kbd><span>+</span><kbd>Win</kbd><span>Hold. Speak. Release.</span></div>
+      </div>
+    </section>
+
+    <section class="how-section wrap" id="how-it-works" aria-labelledby="how-heading">
+      <div class="section-intro"><h2 id="how-heading">A shortcut from<br>thought to text.</h2><p>Keep your hands off the keyboard for a moment. Neyra handles the transcription.</p></div>
+      <ol class="steps"><li><span class="step-title">Hold your shortcut</span><p>Focus a text field and hold <kbd>Ctrl</kbd> + <kbd>Win</kbd>. You can also start recording from the dashboard.</p></li><li><span class="step-title">Say what you need</span><p>The default Whistle engine recognizes English locally. Voz is an optional multilingual engine.</p></li><li><span class="step-title">Release to transcribe</span><p>Your result copies to the clipboard and is pasted into the focused app when the desktop allows it.</p></li></ol>
+    </section>
+
+    <section class="assistant-section" id="assistant" aria-labelledby="assistant-heading">
+      <div class="wrap">
+        <div class="assistant-intro"><h2 id="assistant-heading">Growing into<br>an everyday assistant.</h2><div><p>The development preview brings commands, context, and follow-through into Neyra. AI features connect to ChatGPT and use GPT-6 Luna with low reasoning effort.</p><p class="release-note">These additions are in development. Check the release notes for the features included in each download.</p></div></div>
+        <figure class="app-figure"><img src="assets/assistant-preview.png" width="1340" height="840" loading="lazy" alt="Neyra development dashboard showing an Ask notes question, reviewed source passage, and an answer with a source reference."><figcaption>Development preview with illustrative notes. The app shown here may be ahead of the published release.</figcaption></figure>
+        <div class="feature-list">
+          <article><h3>Ask your computer</h3><p>Open a saved app, adjust the volume, control music, or set a timer. Speak a command with its own shortcut.</p><span>Runs locally</span></article>
+          <article><h3>Understand selected text</h3><p>Capture a selection, review what you're sharing, then ask for an explanation, summary, or translation.</p><span>Optional ChatGPT</span></article>
+          <article><h3>Find what you said</h3><p>Search saved dictations and meetings. Review matching passages before asking Luna a question about them.</p><span>Optional ChatGPT</span></article>
+          <article><h3>Follow up on meetings</h3><p>Extract suggested tasks with supporting quotes. Choose a task and a time to turn it into a reminder.</p><span>Review before saving</span></article>
+          <article><h3>Hear your daily briefing</h3><p>Bring today's local agenda and pending reminders together, then read them aloud with a system voice.</p><span>Runs locally</span></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="honest-section wrap" aria-labelledby="honest-heading"><h2 id="honest-heading">Small model.<br>Honest expectations.</h2><div><p>Neyra is currently a useful speech-to-text app in an early state. The default Needle Whistle model is small and uses very little RAM. Its results are okay, rather than exceptional.</p><p>Speech recognition runs locally on your CPU. Optional ChatGPT features send only the text you choose to share. Voice shortcuts work best on Windows and X11; native Wayland has restrictions.</p><a class="underlined" href="https://github.com/creatorkostas/neyra/issues">Found something that needs fixing?</a></div></section>
+
+    <section class="download-section wrap" id="download" aria-labelledby="download-heading">
+      <div class="download-intro"><h2 id="download-heading">Make room<br>for your voice.</h2><p>Get the latest published build, or run Neyra from source. Read the release notes before installing an early build.</p><a class="underlined" id="release-link" href="https://github.com/creatorkostas/neyra/releases/latest">Release notes <span id="release-version"></span><span aria-hidden="true"> ↗</span></a></div>
+      <div class="download-options">
+        <a class="download-row" data-platform="windows" href="https://github.com/creatorkostas/neyra/releases/latest/download/Neyra.exe"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5 10 4v7H3zm9-1 9-1v8h-9zM3 13h7v7l-7-1zm9 0h9v8l-9-1z"/></svg><span><strong>Windows</strong><small>64-bit · Neyra.exe</small></span><span class="download-arrow" aria-hidden="true">↓</span></a>
+        <a class="download-row" data-platform="linux" href="https://github.com/creatorkostas/neyra/releases/latest/download/Neyra-Linux-x86_64.tar.gz"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 6 6 6-6 6m9 0h7"/></svg><span><strong>Linux</strong><small>x86_64 · tar.gz archive</small></span><span class="download-arrow" aria-hidden="true">↓</span></a>
+        <a class="download-row source-download" href="https://github.com/creatorkostas/neyra#install-with-uv"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5-6 7 6 7m8-14 6 7-6 7M14 3l-4 18"/></svg><span><strong>Run from source</strong><small>Setup guide on GitHub</small></span><span class="download-arrow" aria-hidden="true">↗</span></a>
+        <p class="download-help">Node.js is required for Voz. On Linux, system libraries and desktop support vary. See the <a href="https://github.com/creatorkostas/neyra#readme">installation guide</a>.</p>
+        <p id="release-status" class="release-status" role="status"></p>
+      </div>
+    </section>
+
+    <section class="faq-section wrap" aria-labelledby="faq-heading"><h2 id="faq-heading">A few things to know.</h2><div class="faq-list">
+      <details><summary>Does Neyra need an internet connection?</summary><p>Local Whistle dictation can run offline once its model is available. Voz and meeting models download files on first use. Optional ChatGPT features need an internet connection and an eligible account.</p></details>
+      <details><summary>Do I need an OpenAI API key?</summary><p>The assistant preview uses Continue with ChatGPT. No API key is needed for that connection. ChatGPT account permissions, model availability, and plan usage limits still apply.</p></details>
+      <details><summary>Can Neyra notify me when it is closed?</summary><p>Keep Neyra running in the tray for scheduled reminder notifications. Overdue reminders appear when you reopen it. Closing the app completely stops its scheduler.</p></details>
+      <details><summary>How do I install it on Arch Linux?</summary><p>The repository includes tooling to prepare a neyra-bin AUR package. A generated package recipe is not an AUR publication. Check the <a href="https://github.com/creatorkostas/neyra/blob/main/packaging/aur/README.md">AUR guide</a> for the current setup and submission steps.</p></details>
+      <details><summary>Where can I report a problem?</summary><p>Open an issue on <a href="https://github.com/creatorkostas/neyra/issues">GitHub</a>. Include your operating system, the engine you used, and the error text. Leave private transcripts and account credentials out of reports.</p></details>
+    </div></section>
+  </main>
+  <footer class="wrap"><a class="brand" href="#">Neyra</a><p>Built for the words you'd rather say.</p><div><a href="https://github.com/creatorkostas/neyra">Source</a><a href="https://github.com/creatorkostas/neyra/blob/main/LICENSE">MIT license</a></div></footer>
+</body>
+</html>

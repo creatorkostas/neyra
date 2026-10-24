@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-24T09:00:00Z",
+  "title": "Design System: Neyra website",
+  "extensions": {
+    "shadows": [{"name": "app-preview", "value": "0 18px 45px -25px #4f3a65", "purpose": "Lift the real application preview from its section."}],
+    "motion": [{"name": "voice", "value": "680ms ease-in-out alternate", "purpose": "Show voice activity only during the requested text demo."}],
+    "breakpoints": [{"name": "compact", "value": "1000px"}, {"name": "mobile", "value": "720px"}]
+  },
+  "components": [{
+    "name": "Download action", "kind": "button", "refersTo": "button-primary",
+    "description": "Primary link to the platform download section.",
+    "html": "<a class=\"button primary\" href=\"#download\">Get Neyra</a>",
+    "css": ".button{display:inline-flex;padding:13px 23px;border-radius:8px;text-decoration:none;font-weight:700}.primary{background:var(--purple,#7843a5);color:white}.primary:hover{background:#643489}.button:focus-visible{outline:3px solid var(--purple,#7843a5);outline-offset:6px}"
+  }],
+  "narrative": {
+    "overview": "Extend the existing desktop identity with a clear dictation demonstration, real development evidence, honest preview labeling, and direct release downloads.",
+    "rules": [{"name": "Release truth", "body": "Label development features and illustrative notes; downloads always point to published release assets.", "section": "content"}],
+    "dos": ["Keep downloads usable without JavaScript.", "Use the existing purple and warm paper identity."],
+    "donts": ["Do not imply the static text demo records audio.", "Do not fabricate performance numbers or user testimonials."]
+  }
+}
