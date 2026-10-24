@@ -45,12 +45,16 @@ fetch("https://api.github.com/repos/creatorkostas/neyra/releases/latest", {signa
     if (!/^v[0-9][a-zA-Z0-9.+-]*$/.test(release.tag_name || "")) return;
     document.querySelector("#release-version").textContent = "· " + release.tag_name;
     const assets = Array.isArray(release.assets) ? release.assets : [];
-    const expected = {windows: "Neyra.exe", linux: "Neyra-Linux-x86_64.tar.gz"};
+    const expected = {windows: "Neyra.exe", linux: "Neyra-Linux-x86_64.tar.gz", macos: "Neyra-macOS-AppleSilicon.zip"};
     for (const [platform, name] of Object.entries(expected)) {
       const asset = assets.find(item => item.name === name);
       if (asset) {
         const link = document.querySelector(`[data-platform="${platform}"]`);
         link.href = `https://github.com/creatorkostas/neyra/releases/download/${encodeURIComponent(release.tag_name)}/${name}`;
+        if (platform === "macos") {
+          link.querySelector("small").textContent = "Apple silicon · .app bundle";
+          link.querySelector(".download-arrow").textContent = "↓";
+        }
       }
     }
   })

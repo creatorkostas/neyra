@@ -13,22 +13,22 @@ requested no framework and asked to configure GitHub hosting.
 
 ## Purpose
 
-Introduce Neyra, explain local desktop dictation, and provide Windows and Linux
-release downloads. Neyra itself remains a Python/PySide6 desktop application.
+Introduce Neyra, explain local desktop dictation, and provide Windows, Linux,
+and Apple silicon macOS release downloads. Neyra itself remains a Python/PySide6 desktop application.
 
 ## Audience
 
-Windows and Linux users deciding whether to try Neyra. The user confirmed that
+Windows, Linux, and Apple silicon Mac users deciding whether to try Neyra. The user confirmed that
 the page should focus on downloads and a feature guide, matching the app's look.
 
 ## Product truth
 
-- Default Whistle recognition is local, English, CPU-based, and uses a small model.
+- Default Whistle recognition is local, English, and uses a small model.
 - Its current results are useful but not exceptional. It is an early project.
-- Voz is optional and requires Node.js. Linux integration varies by desktop.
+- Voz is optional and requires Node.js. Linux integration varies by desktop. The Apple silicon macOS build is planned for the next tagged release, is unsigned, and requires approving first launch in Privacy & Security.
 - The new assistant preview has bounded desktop commands, selected-text AI,
   questions over saved notes, meeting actions, and a spoken local daily briefing.
-- Optional AI uses a Neyra-owned ChatGPT login, exact GPT-6 Luna, low reasoning.
+- Optional AI connects with the user's ChatGPT account.
 - The published binaries can lag behind development. The page must label preview
   features and screenshots rather than imply they are in every release.
 

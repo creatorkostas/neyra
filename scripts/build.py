@@ -50,6 +50,7 @@ def main():
     command = [sys.executable, "-m", "nuitka",
         "--standalone" if args.standalone else "--onefile",
         "--enable-plugin=pyside6",
+        "--include-qt-plugins=texttospeech",
         "--include-package=needle",
         "--include-package=neyra",
         "--include-package-data=soundcard",
@@ -65,6 +66,11 @@ def main():
             command.append(f"{option}={ASSETS / folder}=assets/{folder}")
     if is_win:
         command.append("--windows-console-mode=disable")
+    elif sys.platform == "darwin":
+        command.extend([
+            "--macos-create-app-bundle",
+            "--macos-app-protected-resource=NSMicrophoneUsageDescription:Neyra uses the microphone for local dictation and meeting notes.",
+        ])
     command.append(str(ROOT / "run_neyra.py"))
     run(*command)
     print("Build complete. See dist/")

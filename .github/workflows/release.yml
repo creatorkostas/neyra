@@ -23,6 +23,8 @@ jobs:
             artifact: Neyra-Windows
           - os: ubuntu-22.04
             artifact: Neyra-Linux-x86_64
+          - os: macos-14
+            artifact: Neyra-macOS-AppleSilicon
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
@@ -45,10 +47,13 @@ jobs:
       - name: Package Linux executable
         if: runner.os == 'Linux'
         run: tar -czf dist/Neyra-Linux-x86_64.tar.gz -C dist Neyra
+      - name: Package macOS app
+        if: runner.os == 'macOS'
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Neyra.app dist/Neyra-macOS-AppleSilicon.zip
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ runner.os == 'Windows' && 'dist/Neyra.exe' || 'dist/Neyra-Linux-x86_64.tar.gz' }}
+          path: ${{ runner.os == 'Windows' && 'dist/Neyra.exe' || (runner.os == 'macOS' && 'dist/Neyra-macOS-AppleSilicon.zip' || 'dist/Neyra-Linux-x86_64.tar.gz') }}
           if-no-files-found: error
           retention-days: 7
 
