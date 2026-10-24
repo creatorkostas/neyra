@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@desert-ant-labs/voz": "^4.0.0",
+    "@desert-ant-labs/voz": "^4.1.0",
     "onnxruntime-node": "^1.30.0"
   },
   "allowScripts": {
