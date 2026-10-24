@@ -15,6 +15,7 @@ dependencies = [
     "pynput>=1.7",
     "pyperclip>=1.8",
     "soundcard>=0.4.6",
+    "PyJWT[crypto]>=2.10,<3",
 ]
 
 [project.scripts]
@@ -31,3 +32,11 @@ build = ["nuitka>=2.6", "ordered-set>=4.1", "zstandard>=0.23"]
 
 [tool.uv]
 package = true
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14,<1",
+]

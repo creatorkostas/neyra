@@ -1,16 +1,18 @@
 # Neyra — Local Desktop Voice Assistant (MVP)
 
-A local dictation dashboard and floating recording overlay for Windows 10/11 and Linux. Cactus Whistle recognizes English and streams live previews about once per second. Desert Ant Voz supports 25 languages and produces its transcript after recording stops. Both engines run on your CPU. X11 has the best Linux shortcut support; see the Wayland limitations below.
+A local dictation dashboard and floating recording overlay for Windows 10/11, Linux, and Apple silicon Macs. Cactus Whistle recognizes English and streams live previews about once per second. Desert Ant Voz supports 25 languages and produces its transcript after recording stops. Both engines run on your CPU. X11 has the best Linux shortcut support; see the Wayland limitations below.
 
 ## Current state
 
 Neyra is a useful local speech-to-text tool in an early state. Its default Needle Whistle model is small and uses very little RAM. Transcription results are usable, but not exceptional.
 
-Download the Windows and Linux builds from the [latest release](https://github.com/creatorkostas/neyra/releases/latest).
+The optional Assistant connects your ChatGPT account for text explanations, questions over saved notes, and meeting action extraction. Speech recognition, desktop commands, reminders, and the daily agenda remain local.
+
+Download the Windows and Linux builds from the [latest release](https://github.com/creatorkostas/neyra/releases/latest). The release workflow now builds an unsigned macOS app for Apple silicon; it will be attached to the next tagged release.
 
 ## Install with uv
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and use a 64-bit Windows or Linux system.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and use a supported Windows, Linux, or Apple silicon macOS system.
 
 ```bash
 uv sync
@@ -73,6 +75,34 @@ Open **Reminders** to type a command, use **Speak a reminder**, inspect schedule
 
 Keep Neyra running, including in the tray, for notifications at the scheduled time. Closed apps cannot notify; overdue reminders appear when you reopen Neyra. Windows and supported Linux trays use desktop notifications. Linux desktops without a tray can use `notify-send` from `libnotify`; if desktop notifications are unavailable or that command fails, Neyra opens a nonblocking reminder alert. Several reminders overdue at startup share one notification, and the full list remains in the dashboard.
 
+## Use the assistant
+
+Open **Assistant** in the sidebar. Its five tabs cover the following workflows:
+
+1. **Commands:** hold **Ctrl + Alt + A**, speak, then release. Examples include "open calculator", "open browser", "volume up", "pause music", "next track", "set a timer for five minutes", and "daily briefing". These commands run locally. Add a spoken app name and choose its executable under **Assistant apps** to launch your own programs. Neyra never executes arbitrary shell commands from speech or AI output. Windows mute uses the system toggle key; Linux supports "unmute" as well.
+2. **Selected text:** highlight text in another app and press **Ctrl + Alt + E**. Neyra copies it into a preview and restores the previous clipboard when it can identify one stable copy. Choose Explain, Summarize, or Translate, then **Send text to ChatGPT**. You can also paste text manually. Capture alone sends nothing online. This feature reads selected text, not screenshots or the whole screen. The limit is 24,000 characters.
+3. **Ask notes:** enter a question, choose **Find notes**, and review the matching passages. **Ask Luna using these sources** sends the question and those passages. Answers request numbered source references. Search uses local word matching across dictation history and meeting transcripts, with up to six excerpts of 4,500 characters; it does not search arbitrary files. You can say "ask my notes when is the launch" to prepare the search by voice.
+4. **Follow-ups:** choose a saved meeting and **Extract with Luna**. You can also open a meeting and choose **Plan follow-ups with Luna**. Neyra sends that transcript, up to 100,000 characters, and requires each returned task to include a verbatim supporting quote. Select a task, edit it if needed, choose a future date and time, and click **Create reminder**. Extraction alone schedules nothing. Manage saved tasks on **Reminders**.
+5. **Briefing:** add plans to the local agenda, refresh today's briefing, or choose **Read aloud**. The briefing includes today's agenda and pending reminders due by tonight, including overdue ones. Agenda items do not create notifications. Use reminders for alerts. Speech playback uses a system voice and can be stopped. This agenda has no Google or Outlook calendar connection.
+
+Assistant speech uses the selected local transcription engine and does not paste into another app or enter dictation history. Timers start when you release the command shortcut. Starting dictation or a meeting stops briefing playback.
+
+### Connect ChatGPT
+
+Click **Continue with ChatGPT** and complete the browser sign-in. Neyra uses OpenAI's documented [open-source ChatGPT sign-in flow](https://developers.openai.com/siwc/token-sharing-open-source/sign-in), with its own registration and a local callback. No API key or separately installed Codex CLI is needed. Your account must grant ChatGPT plan usage to Neyra.
+
+AI requests use exactly **`gpt-6-luna` with low reasoning effort**. Neyra does not substitute another model. A successful request verifies whether your selected account can use Luna; signing in alone does not prove model access. Internet access and ChatGPT plan availability are required, and account usage limits apply. Use **Usage** to open ChatGPT's usage controls. See [ChatGPT plan inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference) and [Luna model settings](https://developers.openai.com/api/docs/models/gpt-6-luna).
+
+The account picker supports saved accounts and adding another account. **Sign out** attempts to revoke the selected session and clears its local tokens. If remote revocation cannot be confirmed, Neyra says so; disconnect it in ChatGPT Settings. Account mappings remain so later sign-ins can reuse their registration.
+
+Credentials are stored outside the project under Qt's user configuration location in `Neyra/chatgpt`. Windows protects the credential file with the current user's DPAPI; Unix uses an owner-only directory and file. Requests set `store: false`. Audio is never sent to ChatGPT. AI receives only the selected text, the reviewed note excerpts, or the meeting transcript you ask it to process. AI answers can still be wrong, so inspect the cited passages and proposed tasks.
+
+### Linux assistant dependencies
+
+Commands and the dashboard work on Linux. Install `playerctl` for media playback commands and `wpctl` from WirePlumber, or `pactl`, for volume commands. Briefing playback requires a system speech engine such as `speech-dispatcher` with an installed voice. The packaged app includes Qt's text-to-speech plugins, but system voices remain external dependencies. If speech playback is unavailable, the briefing remains readable.
+
+On native Wayland, use **Speak command** in Assistant and copy text manually into the preview. Global keyboard hooks and simulated copy are subject to the same desktop restrictions as dictation.
+
 ## Build with Nuitka (offline model included)
 
 ```bash
@@ -81,7 +111,7 @@ npm ci --omit=dev
 uv run python scripts/build.py --onefile
 ```
 
-The build script runs `needle download whistle --out assets/model` and `needle fetch --out assets/engine`, verifies the model and native engine library, and includes both in Nuitka's onefile distribution. It also includes the installed Voz `node_modules` directory. Run `npm ci` on the target build platform so the ONNX native binaries match Windows or Linux. The build fails if the npm dependency directory is missing.
+The build script runs `needle download whistle --out assets/model` and `needle fetch --out assets/engine`, verifies the model and native engine library, and includes both in Nuitka's onefile distribution. It also includes the installed Voz `node_modules` directory. Run `npm ci` on the target build platform so the ONNX native binaries match Windows, Linux, or macOS. The build fails if the npm dependency directory is missing.
 
 At startup, Neyra sets `NEEDLE_WHISTLE_WEIGHTS`, `NEEDLE3_LIB_PATH`, and `HF_HUB_OFFLINE=1` for the bundled Whistle assets. Whistle should not download weights in a packaged build. Voz and the optional meeting models still download their own assets on first use.
 
@@ -91,13 +121,13 @@ For easier debugging first build a folder distribution:
 uv run python scripts/build.py --standalone
 ```
 
-Build on Windows to produce `dist/Neyra.exe`; build on Linux to produce `dist/Neyra`. Nuitka does not cross-compile. The executable is self-extracting, not a fully static binary; Linux still needs compatible system libraries and a display server.
+Build on Windows to produce `dist/Neyra.exe`, on Linux to produce `dist/Neyra`, and on Apple silicon macOS to produce `dist/Neyra.app`. Nuitka does not cross-compile. macOS builds are not signed or notarized, so Gatekeeper may require you to approve opening the downloaded app in **System Settings → Privacy & Security**. macOS may also ask you to grant microphone access and Accessibility access for global shortcuts. The executable is self-extracting, not a fully static binary; Linux still needs compatible system libraries and a display server.
 
 **Packaging caveat:** Cactus's fetched engine layout may change, and some distributions may contain multiple libraries. The build deliberately fails instead of silently falling back to online downloads. If `NEEDLE3_LIB_PATH` is ignored by a future Cactus release or native dependencies are missing, verify against that release and adjust the packaging.
 
 ## Publish a release
 
-Push a version tag such as `v0.1.0` to build both platform packages and publish them as GitHub release assets. The workflow also builds both packages on pushes to `main`.
+Push a version tag such as `v0.1.0` to build the Windows, Linux, and Apple silicon macOS packages and publish them as GitHub release assets. The workflow also builds all three on pushes to `main`.
 
 Tagged releases also attach `neyra-bin-VERSION-aur.tar.gz`, a submission archive for the Arch User Repository. It contains the package recipe, matching `.SRCINFO`, desktop launcher, icon, and license. Its checksums come from the exact Linux release archive. See [AUR packaging and submission](packaging/aur/README.md) for Arch validation and SSH submission. Generating these files does not publish the package to the AUR.
 
@@ -106,6 +136,8 @@ Tagged releases also attach `neyra-bin-VERSION-aur.tar.gz`, a submission archive
 - **Hold** `Ctrl+Win` to record; release either key to finish. The overlay hides on release, and the transcript is copied to the clipboard when transcription completes.
 - **Toggle** `Ctrl+Shift+Space` to start/stop recording.
 - **Remind**: hold `Ctrl+Alt+Space`, say a relative reminder command, then release to save it.
+- **Assistant**: hold `Ctrl+Alt+A`, speak a command, then release.
+- **Selected text**: press `Ctrl+Alt+E` to capture a selection for review before sending it to ChatGPT.
 - The dashboard includes local Insights, a recognition dictionary, spoken snippets, output styles, and a Notetaker that captures the microphone and default speaker audio.
 - Notetaker uses Voz and Align for word timestamps. Optional Who speaker labels, Clear audio cleanup, and Gist topic tags have separate controls on the Notetaker page.
 - Meeting titles are suggested from the transcript and can be edited. Search matches titles, topics, and transcript text. Summaries and follow-up suggestions still use local sentence extraction rules.
@@ -151,6 +183,10 @@ The build script includes `assets/meeting-models` when present and excludes deve
 
 ## Architecture
 
+Read the [short architecture guide](docs/architecture.md) for runtime flow,
+module ownership, and boundaries to preserve. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for development setup, PR checks, dependency updates, and the release process.
+
 ```
 neyra/
   main.py     # PySide6 overlay, tray, session lifecycle
@@ -159,8 +195,12 @@ neyra/
   hotkeys.py  # hold and toggle chords (Windows/X11)
   desktop.py  # best-effort cross-platform paste
   startup.py  # per-user Windows and Linux login startup entries
-  reminders.py # relative-time command parser and persistent reminders
+  reminders.py # relative-time parser, reviewed deadlines, and persistent reminders
   reminders_ui.py # reminder list, command entry, and notification fallback
+  assistant_ui.py # commands, text preview, note search, follow-ups, and briefing tabs
+  assistant_features.py # assistant UI wiring, background requests, and speech playback
+  assistant_tools.py # bounded desktop actions, source selection, and local agenda
+  chatgpt.py # Neyra-owned OAuth accounts and Luna Responses streaming
   system_audio.py # default-speaker loopback capture for Notetaker
   text_tools.py # local speech cleanup and snippet expansion
 pyproject.toml
@@ -175,6 +215,8 @@ uv run python -m unittest discover -s tests -v
 ```
 
 These checks use isolated settings and simulated audio devices. They cover device selection, meter-test cleanup, recording controls, history retention and clearing, vocabulary corrections, login entries, and the Voz preload/subprocess protocol. Reminder checks cover spoken time parsing, shortcut isolation, persistent deadlines, timer delivery, cancellation, and shutdown before notification acknowledgment. They do not capture the microphone or system audio or send actual desktop notifications. Run `python packaging/aur/check_generator.py` separately for the portable AUR generator checks; Arch installation needs native validation.
+
+Assistant checks cover command restrictions, clipboard preservation, reviewed source sharing, grounded action extraction, explicit reminder creation, and local agenda persistence. ChatGPT tests use a real loopback callback with mocked provider endpoints, signed synthetic ID tokens, credential protection, refresh locking, and simulated response streams. They do not sign into a real account or consume ChatGPT usage. Test actual login, model access, desktop shortcuts, and system speech on your target machine.
 
 ## Troubleshooting
 

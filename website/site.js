@@ -7,24 +7,32 @@ const state = document.querySelector("#demo-state");
 const announcement = document.querySelector("#demo-announcement");
 const example = "A quick thought.\nA message to send.\nOne less thing to type.";
 
-button.addEventListener("click", () => {
+button.addEventListener("click", event => {
   button.disabled = true;
   demo.classList.add("is-playing");
   state.textContent = "Turning words into text";
   text.textContent = "";
   let position = 0;
+  let timer;
   const finish = () => {
+    window.clearInterval(timer);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+    text.textContent = example;
     demo.classList.remove("is-playing");
     state.textContent = "Your text is ready";
     button.disabled = false;
     announcement.textContent = "Preview complete. This demonstration did not use your microphone.";
   };
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  const onVisibilityChange = () => {
+    if (document.hidden) finish();
+  };
+  if (event.detail === 0 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     text.textContent = example;
     finish();
     return;
   }
-  const timer = window.setInterval(() => {
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  timer = window.setInterval(() => {
     text.textContent = example.slice(0, ++position);
     if (position >= example.length) {
       window.clearInterval(timer);

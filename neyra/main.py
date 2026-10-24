@@ -20,6 +20,8 @@ from .meeting import bridge_path, validated_words
 from . import startup
 from .reminders import ReminderStore
 from .reminders_ui import RemindersPanel, ReminderAlert, due_label
+from .assistant_ui import AssistantPanel
+from .assistant_features import AssistantFeatures
 
 
 def load_setting(settings, key, expected, default):
@@ -186,7 +188,7 @@ class HistoryDashboard(QDialog):
         side.addLayout(brand_row)
         side.addSpacing(23)
         self.nav_buttons = {}
-        for index, name in ((0, "Dictation"), (1, "Notetaker"), (7, "Reminders"), (2, "Insights"), (3, "Dictionary"), (4, "Snippets"), (5, "Style")):
+        for index, name in ((0, "Dictation"), (8, "Assistant"), (1, "Notetaker"), (7, "Reminders"), (2, "Insights"), (3, "Dictionary"), (4, "Snippets"), (5, "Style")):
             button = QPushButton(name)
             button.setObjectName("nav")
             button.setIcon(icon(name.lower()))
@@ -437,6 +439,8 @@ class HistoryDashboard(QDialog):
         self.pages.addWidget(self.create_settings_page())
         self.reminders = RemindersPanel()
         self.pages.addWidget(self.reminders)
+        self.assistant_panel = AssistantPanel()
+        self.pages.addWidget(self.assistant_panel)
 
         self.items.refresh(self.records)
         self.update_stats()
@@ -621,7 +625,7 @@ class HistoryDashboard(QDialog):
     def show_page(self, index):
         self.pages.setCurrentIndex(index)
         self.heading.setVisible(index != 1)
-        self.heading.setText(("Dictation", "Notetaker", "Insights", "Dictionary", "Snippets", "Output style", "Settings", "Reminders")[index])
+        self.heading.setText(("Dictation", "Notetaker", "Insights", "Dictionary", "Snippets", "Output style", "Settings", "Reminders", "Assistant")[index])
         for i, button in self.nav_buttons.items():
             button.setChecked(i == index)
 
@@ -644,7 +648,7 @@ class HistoryDashboard(QDialog):
             self.windowHandle().startSystemMove()
 
     def show_help(self):
-        QMessageBox.information(self, "Using Neyra", "Hold Ctrl + Win to dictate, then release to paste.\nCtrl + Shift + Space toggles recording.\nHold Ctrl + Alt + Space to speak a reminder, then release to save it.\n\nExample: Remind me in an hour to take out the garbage.\nKeep Neyra running in the tray for on-time notifications.\n\nDouble-click the tray icon to open this dashboard.\nChoose your transcription engine in Settings.\nTranscripts and reminders are stored locally on this computer.")
+        QMessageBox.information(self, "Using Neyra", "Hold Ctrl + Win to dictate, then release to paste.\nCtrl + Shift + Space toggles recording.\nHold Ctrl + Alt + Space to speak a reminder.\nHold Ctrl + Alt + A to speak an assistant command.\nCtrl + Alt + E captures selected text for review.\n\nExample: Remind me in an hour to take out the garbage.\nKeep Neyra running in the tray for on-time notifications.\n\nOpen Assistant to connect ChatGPT, ask questions about saved notes, plan meeting follow-ups, or hear your daily briefing. AI uses GPT-6 Luna with low reasoning. Only text you choose to send is shared.\n\nChoose your local transcription engine in Settings.")
 
     def toggle_search(self):
         self.search_input.setVisible(not self.search_input.isVisible())
@@ -899,12 +903,14 @@ class Assistant(QObject):
         self.history.notetaker_stop.connect(self.stop_notetaker)
         self.history.notetaker.retry_requested.connect(self.process_meeting)
         self.history.notetaker.discard_requested.connect(self.discard_meeting)
+        self.assistant_features = AssistantFeatures(self)
+        self.history.notetaker.followups_requested.connect(self.assistant_features.show_followups)
         self.tray = QSystemTrayIcon(icon("wave"), app)
         menu = self.tray_menu = QMenu()
         self.tray_status = menu.addAction("Ready to dictate")
         self.tray_status.setEnabled(False)
         menu.addSeparator()
-        for title, action in [("Start dictation", self.toggle), ("Speak a reminder", self.toggle_reminder), ("Reminders", self.show_reminders), ("Stop Notetaker", self.stop_notetaker), ("Open Neyra", self.show_history), ("Copy last transcript", self.copy_last), ("Settings", self.show_settings), ("Quit Neyra", self.quit)]:
+        for title, action in [("Start dictation", self.toggle), ("Speak a reminder", self.toggle_reminder), ("Speak a command", self.toggle_assistant), ("Assistant", self.assistant_features.show), ("Reminders", self.show_reminders), ("Stop Notetaker", self.stop_notetaker), ("Open Neyra", self.show_history), ("Copy last transcript", self.copy_last), ("Settings", self.show_settings), ("Quit Neyra", self.quit)]:
             item = QAction(title, menu)
             item.triggered.connect(action)
             menu.addAction(item)
@@ -916,6 +922,8 @@ class Assistant(QObject):
                 self.copy_action = item
             elif title == "Speak a reminder":
                 self.reminder_action = item
+            elif title == "Speak a command":
+                self.assistant_action = item
         self.tray.setContextMenu(menu)
         self.tray.setToolTip("Neyra")
         self.tray.activated.connect(self.tray_activated)
@@ -935,6 +943,9 @@ class Assistant(QObject):
                 self.hotkeys.toggle.connect(self.toggle)
                 self.hotkeys.reminder_start.connect(self.start_reminder)
                 self.hotkeys.reminder_stop.connect(self.stop_reminder)
+                self.hotkeys.assistant_start.connect(self.start_assistant)
+                self.hotkeys.assistant_stop.connect(self.stop_assistant)
+                self.hotkeys.selection_requested.connect(self.assistant_features.capture_selection)
                 self.hotkeys.start()
             except Exception as exc:
                 self.overlay.text = f"Hotkeys unavailable: {exc}. Use tray menu."
@@ -998,8 +1009,12 @@ class Assistant(QObject):
                 self.history.capture.record_button.setText("Stop and set reminder")
         self.history.set_capture_busy(busy)
         self.history.reminders.set_capture_state(reminder_recording, busy)
+        assistant_recording = self.recording and self.active_mode == "assistant"
+        self.history.assistant_panel.set_capture_state(assistant_recording, busy)
+        self.assistant_action.setText("Finish command" if assistant_recording else "Speak a command")
+        self.assistant_action.setEnabled(assistant_recording or not busy)
         self.record_action.setText("Stop dictation" if self.recording and not reminder_recording else "Start dictation")
-        self.record_action.setEnabled(not self.processing and not self.notetaker_active and not reminder_recording)
+        self.record_action.setEnabled(not self.processing and not self.notetaker_active and not reminder_recording and not assistant_recording)
         self.reminder_action.setText("Stop reminder command" if reminder_recording else "Speak a reminder")
         self.reminder_action.setEnabled(reminder_recording or not busy)
         self.meeting_action.setEnabled(self.notetaker_active)
@@ -1007,6 +1022,10 @@ class Assistant(QObject):
         label = {"idle": "Ready to dictate", "recording": "Recording dictation", "processing": "Transcribing", "meeting": "Notetaker active"}[state]
         if reminder_busy:
             label = "Recording reminder" if self.recording else "Setting reminder"
+        if self.active_mode == "assistant" and (self.recording or self.processing):
+            label = "Listening for a command" if self.recording else "Transcribing command"
+            self.history.capture.title.setText(label)
+            self.history.capture.detail.setText("Release Ctrl + Alt + A when you finish speaking.")
         self.tray_status.setText(label)
         self.tray.setToolTip(f"Neyra · {label}")
 
@@ -1040,6 +1059,23 @@ class Assistant(QObject):
             self.start("reminder")
 
     @Slot()
+    def start_assistant(self):
+        if not self.assistant_features.job.running:
+            self.start("assistant")
+
+    @Slot()
+    def stop_assistant(self):
+        if self.active_mode == "assistant":
+            self.stop()
+
+    @Slot()
+    def toggle_assistant(self):
+        if self.recording:
+            self.stop_assistant()
+        else:
+            self.start_assistant()
+
+    @Slot()
     def stop_reminder(self):
         if self.active_mode == "reminder":
             self.stop()
@@ -1056,7 +1092,7 @@ class Assistant(QObject):
             self.start_reminder()
 
     def toggle_capture(self):
-        self.stop_reminder() if self.recording and self.active_mode == "reminder" else self.toggle()
+        self.stop() if self.recording else self.toggle()
 
     @Slot(str)
     def submit_reminder(self, command, now=None, spoken=False):
@@ -1181,11 +1217,15 @@ class Assistant(QObject):
         self.paste_timer.stop()
         self.feedback_timer.stop()
         self.stop_microphone_test()
+        self.assistant_features.stop_speech()
         self.active_mode = mode
         self.reminder_command_time = None
         self._paste_on_complete = mode == "dictation" and not self.history.isActiveWindow()
         self.overlay.state = "Reminder" if mode == "reminder" else "Listening"
         self.overlay.text = 'Say "remind me in an hour to..."' if mode == "reminder" else "Speak now..."
+        if mode == "assistant":
+            self.overlay.state = "Assistant"
+            self.overlay.text = 'Say "open calculator", "daily briefing", or a command'
         self.overlay.show()
         chunks = queue.Queue()
         try:
@@ -1205,7 +1245,7 @@ class Assistant(QObject):
         self.overlay.hide()
         if not self.recording: return
         self.recording = False
-        if self.active_mode == "reminder":
+        if self.active_mode in ("reminder", "assistant"):
             self.reminder_command_time = time.time()
         self.recording_duration = time.monotonic() - self.recording_started
         self.processing = True
@@ -1245,6 +1285,12 @@ class Assistant(QObject):
             return
         self.processing = False
         self.history.input_meter.reset()
+        if self.active_mode == "assistant":
+            self.active_mode = "dictation"
+            self.update_controls()
+            self.history.status_label.setText("Ready to dictate")
+            self.assistant_features.command(text, now=self.reminder_command_time)
+            return
         if self.active_mode == "reminder":
             self.active_mode = "dictation"
             self.update_controls()
@@ -1297,6 +1343,7 @@ class Assistant(QObject):
             return
         try:
             self.stop_microphone_test()
+            self.assistant_features.stop_speech()
             bridge_path()
             self.meeting_options = self.history.notetaker.processing_options()
             self._meeting_capture_warnings = []
@@ -1408,6 +1455,9 @@ class Assistant(QObject):
         if self.active_mode == "reminder":
             self.history.reminders.status.setText(f"Reminder not saved. {message}")
             self.active_mode = "dictation"
+        elif self.active_mode == "assistant":
+            self.history.assistant_panel.status.setText(message)
+            self.active_mode = "dictation"
         self.history.input_meter.reset()
         self.update_controls()
         self.history.capture.set_session("error", message)
@@ -1445,6 +1495,7 @@ class Assistant(QObject):
         if self.closing:
             return
         self.closing = True
+        self.assistant_features.cleanup()
         self.reminder_timer.stop()
         self.feedback_timer.stop()
         for alert in tuple(self.notification_alerts):

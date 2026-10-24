@@ -69,6 +69,8 @@ def main():
     elif sys.platform == "darwin":
         command.extend([
             "--macos-create-app-bundle",
+            # Nuitka's PortAudio prefix rule also matches Windows DLLs in the wheel.
+            "--noinclude-dlls=_sounddevice_data/portaudio-binaries/*.dll",
             "--macos-app-protected-resource=NSMicrophoneUsageDescription:Neyra uses the microphone for local dictation and meeting notes.",
         ])
     command.append(str(ROOT / "run_neyra.py"))

@@ -144,6 +144,8 @@ class ReminderStore:
             seen.add(identifier)
             self.records.append({"id": identifier, "text": text, "due_at": due_at,
                                  "created_at": created_at, "status": status})
+            if isinstance(record.get("source_key"), str) and re.fullmatch(r"meeting:[0-9a-f]{64}", record["source_key"]):
+                self.records[-1]["source_key"] = record["source_key"]
         self._trim()
 
     def _trim(self):
@@ -163,8 +165,25 @@ class ReminderStore:
     def add(self, command, now=None):
         current = time.time() if now is None else now
         text, due_at = parse_reminder(command, current)
+        return self.add_at(text, due_at, now=current)
+
+    def add_at(self, text, due_at, now=None, source_key=None):
+        current = time.time() if now is None else now
+        if not isinstance(text, str) or not text.strip() or len(text.strip()) > 2000:
+            raise ValueError("Enter a reminder task of up to 2,000 characters.")
+        if not _timestamp(current) or not _timestamp(due_at) or due_at <= current:
+            raise ValueError("Choose a reminder time in the future.")
+        if source_key is not None:
+            if not isinstance(source_key, str) or not re.fullmatch(r"meeting:[0-9a-f]{64}", source_key):
+                raise ValueError("Invalid reminder source.")
+            existing = next((record for record in self.records if record.get("source_key") == source_key), None)
+            if existing:
+                return existing
+        text = text.strip()
         record = {"id": uuid.uuid4().hex, "text": text, "due_at": due_at,
                   "created_at": current, "status": "pending"}
+        if source_key is not None:
+            record["source_key"] = source_key
         self.records.append(record)
         self._save()
         return record

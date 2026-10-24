@@ -21,6 +21,18 @@ APP = QApplication.instance() or QApplication([])
 
 
 class DesktopFeatures(unittest.TestCase):
+    def test_long_combo_labels_do_not_expand_the_layout(self):
+        from neyra.ui import DashboardComboBox
+        combo = DashboardComboBox()
+        self.addCleanup(combo.close)
+        combo.addItem("Default microphone")
+        width = combo.sizeHint().width()
+        label = "A very long microphone or account name " * 30
+        combo.addItem(label)
+        combo.setCurrentIndex(1)
+        self.assertEqual(combo.sizeHint().width(), width)
+        self.assertEqual(combo.toolTip(), label)
+
     def setUp(self):
         folder = tempfile.TemporaryDirectory(prefix="neyra-desktop-")
         self.addCleanup(folder.cleanup)

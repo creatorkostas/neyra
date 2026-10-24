@@ -1,0 +1,65 @@
+name: Report an issue or suggest an improvement
+description: Report a problem or share an idea for Neyra.
+title: ""
+labels: []
+body:
+  - type: dropdown
+    id: issue_type
+    attributes:
+      label: What would you like to report?
+      options:
+        - Bug
+        - Feature request
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: Give the issue a short, specific title.
+      placeholder: What happened or what would you like Neyra to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Describe the problem or idea. For bugs, include steps to reproduce and what you expected to happen.
+      placeholder: Tell us what happened, what you expected, and how to reproduce it.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating_system
+    attributes:
+      label: Operating system
+      description: Select the system where you saw the issue, if applicable.
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - Not applicable
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: neyra_version
+    attributes:
+      label: Neyra version
+      description: Include the release version or say that you are using a development build.
+      placeholder: e.g. 0.1.2
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra_context
+    attributes:
+      label: Logs or screenshots
+      description: Add relevant error text or a screenshot. Remove personal information, access tokens, and other secrets before posting.
+      render: text
+    validations:
+      required: false

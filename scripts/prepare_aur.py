@@ -60,6 +60,9 @@ def prepare(version, archive, output):
             "xcb-util-renderutil", "xcb-util-wm", "zlib", "xclip",
         ]),
         ("optdepends", [
+            "speech-dispatcher: read daily briefings aloud with a system voice",
+            "playerctl: assistant media playback commands",
+            "wireplumber: assistant volume controls through wpctl",
             "libnotify: desktop reminder notifications without a system tray",
             "wl-clipboard: clipboard access on Wayland",
             "wtype: text insertion on supported Wayland compositors",

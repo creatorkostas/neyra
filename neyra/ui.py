@@ -15,6 +15,7 @@ from .text_tools import meeting_brief
 from .meeting import meeting_transcript, timestamp, speaker_label
 
 PATHS = {
+    "assistant": '<path d="m12 2 2.8 7.2L22 12l-7.2 2.8L12 22l-2.8-7.2L2 12l7.2-2.8z"/>',
     "dictation": '<rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M9 22h6"/>',
     "notetaker": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>',
     "reminders": '<path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5zM10 20a2 2 0 0 0 4 0M12 2v2"/>',
@@ -70,16 +71,19 @@ QFrame#surface { background: #fdfdfc; border: 1px solid #eae7e1; border-radius: 
 QFrame#sidebar, QWidget#windowBar { background: transparent; border: none; }
 QLabel#heading { font-size: 25px; font-weight: 600; }
 QLabel#brand { font-size: 25px; font-weight: 700; color: #302c34; }
-QLabel#muted { color: #79736c; font-size: 12px; }
+QLabel#muted { color: #655f59; font-size: 13px; }
 QLabel#dateLabel { color: #777168; font-size: 12px; letter-spacing: 1px; padding: 14px 0; }
-QPushButton { color: #191819; background: #eeece6; border: 0; border-radius: 8px; padding: 9px 14px; }
+QPushButton { color: #191819; background: #eeece6; border: 1px solid transparent; border-radius: 8px; padding: 8px 13px; }
 QPushButton:hover { background: #e6e3dc; }
+QPushButton:pressed { background: #dcd5e3; }
 QPushButton:disabled { color: #979087; background: #f0eee9; }
-QPushButton:focus { border: 2px solid #9770b7; padding: 7px 12px; }
+QPushButton:focus { border-color: #7843a5; }
 QPushButton#nav { background: transparent; text-align: left; padding: 8px 10px; }
 QPushButton#nav:checked, QPushButton#nav:hover { background: #eeece5; }
-QPushButton#primary { background: #1e1d1c; color: white; }
-QPushButton#primary:hover { background: #3c3835; }
+QPushButton#primary { background: #7843a5; color: white; }
+QPushButton#primary:hover { background: #65368c; }
+QPushButton#primary:pressed { background: #522a75; }
+QPushButton#primary:disabled { color: #756b7d; background: #e8e3ec; }
 QPushButton#iconButton { background: transparent; padding: 4px; border-radius: 5px; }
 QPushButton#iconButton:hover { background: #ebe8e2; }
 QPushButton::menu-indicator { image: none; width: 0; }
@@ -97,12 +101,17 @@ QPushButton#textButton { background: transparent; padding: 7px; }
 QTabWidget::pane { border: 1px solid #e5e0d7; border-radius: 8px; background: white; }
 QTabBar::tab { background: transparent; padding: 10px 16px; border-bottom: 2px solid transparent; }
 QTabBar::tab:selected { border-bottom-color: #8037af; }
+QTabBar::tab:focus { background: #eee7f3; }
 QScrollArea, QScrollArea > QWidget > QWidget, QStackedWidget { background: transparent; border: none; }
 QScrollBar:vertical { width: 7px; background: transparent; margin: 2px; }
 QScrollBar::handle:vertical { background: #d8d3cb; border-radius: 3px; min-height: 35px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
 QLineEdit, QTextEdit, QComboBox { background: white; color: #191819; border: 1px solid #ded9cf; border-radius: 8px; padding: 10px; selection-background-color: #e7dcef; selection-color: #191819; }
+QLineEdit:focus, QTextEdit:focus { border-color: #7843a5; }
+QTextEdit:read-only { background: #faf9f6; }
+QDateTimeEdit { background: white; color: #191819; border: 1px solid #ded9cf; border-radius: 8px; padding: 8px; min-height: 22px; }
+QDateTimeEdit:focus { border-color: #7843a5; }
 QComboBox { padding-right: 38px; min-height: 22px; }
 QComboBox:hover { border-color: #b9b1a6; }
 QComboBox:focus, QComboBox:on { border-color: #9a78b2; }
@@ -270,6 +279,9 @@ class DashboardComboBox(QComboBox):
         super().__init__(parent)
         self.setView(QListView(self))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.setMinimumContentsLength(10)
+        self.currentTextChanged.connect(self.setToolTip)
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -282,6 +294,7 @@ class DashboardComboBox(QComboBox):
 
 
 class NotetakerPanel(QWidget):
+    followups_requested = Signal(object)
     start_requested = Signal()
     stop_requested = Signal()
     delete_requested = Signal(object)
@@ -605,6 +618,12 @@ class NotetakerPanel(QWidget):
             self.refresh()
         save.clicked.connect(save_title)
         buttons.addWidget(save)
+        followups = QPushButton("Plan follow-ups with Luna")
+        def open_followups():
+            dialog.accept()
+            self.followups_requested.emit(record)
+        followups.clicked.connect(open_followups)
+        buttons.addWidget(followups)
         buttons.addStretch()
         copy = QPushButton("Copy transcript")
         copy.clicked.connect(lambda: QApplication.clipboard().setText(meeting_transcript(record)))
