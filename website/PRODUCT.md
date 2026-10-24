@@ -18,9 +18,8 @@ release downloads. Neyra itself remains a Python/PySide6 desktop application.
 
 ## Audience
 
-Assumption for this page: Windows and Linux users deciding whether to try Neyra.
-The optional preference question received no answer before implementation. The
-page defaults to downloads and a feature guide using the existing app identity.
+Windows and Linux users deciding whether to try Neyra. The user confirmed that
+the page should focus on downloads and a feature guide, matching the app's look.
 
 ## Product truth
 
