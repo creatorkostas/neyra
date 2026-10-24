@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from PySide6.QtCore import QSettings
-from PySide6.QtTest import QTest
+from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication
 from pynput import keyboard
 from neyra.hotkeys import Hotkeys
@@ -177,10 +177,12 @@ class ReminderIntegrationTests(unittest.TestCase):
 
     def test_background_timer_dispatches_due_reminder(self):
         assistant = self.assistant()
-        reminder = assistant.reminder_store.add("remind me in a second to stretch", now=time.time() - 0.99)
+        APP.processEvents()
+        reminder = assistant.reminder_store.add("remind me in a second to stretch", now=1000)
         assistant.reminder_timer.setInterval(20)
-        with patch("neyra.main.QSystemTrayIcon.isSystemTrayAvailable", return_value=True), patch("neyra.main.QSystemTrayIcon.supportsMessages", return_value=True), patch.object(assistant.tray, "showMessage") as notification:
-            QTest.qWait(150)
+        with patch("neyra.main.time.time", return_value=1001), patch("neyra.main.QSystemTrayIcon.isSystemTrayAvailable", return_value=True), patch("neyra.main.QSystemTrayIcon.supportsMessages", return_value=True), patch.object(assistant.tray, "showMessage") as notification:
+            timer = QSignalSpy(assistant.reminder_timer.timeout)
+            self.assertTrue(timer.wait(2000), "Reminder timer did not fire")
         self.assertEqual(notification.call_count, 1)
         self.assertEqual(notification.call_args.args[:2], ("Neyra reminder", "stretch\nOpen Reminders to snooze or mark done."))
         self.assertEqual(reminder["status"], "fired")

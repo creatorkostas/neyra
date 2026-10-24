@@ -30,7 +30,7 @@ class BuildPackagingTests(unittest.TestCase):
 
     def test_macos_voz_resource_can_be_staged_beside_the_neyra_executable(self):
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
+            root = Path(folder).resolve()
             command = self.build_command(root, "darwin")
             bundle = root / "Neyra.app" / "Contents" / "MacOS"
             bundle.mkdir(parents=True)
