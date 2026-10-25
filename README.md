@@ -19,7 +19,7 @@ Neyra is a useful local speech-to-text tool in an early state. Its default Needl
 
 The optional Assistant connects your ChatGPT account for text explanations, questions over saved notes, and meeting action extraction. Speech recognition, desktop commands, reminders, and the daily agenda remain local.
 
-Download the Windows and Linux builds from the [latest release](https://github.com/creatorkostas/neyra/releases/latest). The release workflow now builds an unsigned macOS app for Apple silicon; it will be attached to the next tagged release.
+Download the Windows, Linux, and Apple silicon macOS builds from the [latest release](https://github.com/creatorkostas/neyra/releases/latest). The macOS download is an unsigned `.app` bundle in a ZIP archive; see the macOS permissions below before opening it.
 
 ## Install with uv
 

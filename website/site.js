@@ -60,7 +60,7 @@ fetch("https://api.github.com/repos/creatorkostas/neyra/releases/latest", {signa
         const link = document.querySelector(`[data-platform="${platform}"]`);
         link.href = `https://github.com/creatorkostas/neyra/releases/download/${encodeURIComponent(release.tag_name)}/${name}`;
         if (platform === "macos") {
-          link.querySelector("small").textContent = "Apple silicon · .app bundle";
+          link.querySelector("small").textContent = "Apple silicon · .app bundle in ZIP";
           link.querySelector(".download-arrow").textContent = "↓";
         }
       }
