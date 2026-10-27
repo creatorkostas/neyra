@@ -29,10 +29,12 @@ The main message is "Capture a thought. Remember what matters."
 
 - Default Whistle recognition is local, English, and uses a small model.
 - Its current results are useful but not exceptional. It is an early project.
-- Voz is optional and requires Node.js. Linux integration varies by desktop. The Apple silicon macOS build is available from v0.1.3 as an unsigned app bundle and may require approving first launch in Privacy & Security.
+- Voz is optional, runs on Python and ONNX Runtime, and needs no Node.js install. Its encoder uses WebGPU on Windows and Linux x86_64 and CoreML on macOS, falling back to the CPU. Linux integration varies by desktop. The Apple silicon macOS build is available from v0.1.3 as an unsigned app bundle and may require approving first launch in Privacy & Security.
 - The new assistant preview has bounded desktop commands, selected-text AI,
   questions over saved notes, meeting actions, and a spoken local daily briefing.
-- Optional AI connects with the user's ChatGPT account.
+- Optional AI connects with the user's ChatGPT account, a local compatible model
+  server, or OpenCode, and local Needle 3 routing handles everyday tool requests
+  without an assistant account. Screen questions currently require ChatGPT.
 - The published binaries can lag behind development. The page must label preview
   features and screenshots rather than imply they are in every release.
 
