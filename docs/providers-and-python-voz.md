@@ -69,9 +69,58 @@ directory for offline use. It must contain `meta.json`, `vocab.json`,
 `embedding.f16`, `mel.onnx`, `encoder.onnx`, `encoder.weights`, and `decoder.onnx`.
 Downloaded external weights are materialized beside the graphs because recent
 ONNX Runtime versions reject external-data symlinks escaping the model directory.
-`NEYRA_VOZ_ONNX_PROVIDER` can select an execution provider installed in the Python
-environment; CPU is the tested default. DirectML/CUDA and packaged builds still
-need target-device verification.
+
+### Execution providers
+
+The mel front end and encoder run on the GPU when the installed ONNX Runtime build
+offers one; the autoregressive decoder stays on the CPU because it makes one small
+call per token. The wheel installed by `uv sync` is chosen per platform, so a
+normal install needs no configuration:
+
+| Platform | Wheel | Accelerated provider |
+| --- | --- | --- |
+| Linux x86_64 | `onnxruntime-webgpu` | WebGPU (Vulkan driver) |
+| Windows x86_64 | `onnxruntime-directml` | DirectML (any DirectX 12 GPU) |
+| macOS | `onnxruntime` | CoreML |
+| Other | `onnxruntime` | CPU only |
+
+`NEYRA_VOZ_DEVICE` accepts `auto` (default), `cpu`, `gpu`, or `webgpu`.
+`NEYRA_VOZ_ONNX_PROVIDER` names an installed provider explicitly and overrides the
+device setting. `NEYRA_VOZ_CACHE_DIR` relocates the OpenVINO kernel cache, which
+avoids recompiling the graphs on every start. If a GPU session cannot be created,
+Voz reports the failure in the model status line and retries on the CPU.
+
+Measured on a 9.76 s clip on an i5-1135G7 with Iris Xe, three runs, warm caches:
+
+| Provider | Load | Transcribe | Real-time factor |
+| --- | --- | --- | --- |
+| CPU | 2.8 s | 1.38 s | 0.14 |
+| OpenVINO, `auto` | 2.8 s | 1.40 s | 0.14 |
+| OpenVINO, `device=gpu` | 1.0 s | 1.19 s | 0.12 |
+| WebGPU (default) | 0.9 s | 0.91 s | 0.09 |
+
+WebGPU needs only a Vulkan driver and was the fastest and most reliable option on
+this machine, so it is the default Linux build. OpenVINO remains available by
+swapping the Linux marker in `pyproject.toml` to `onnxruntime-openvino`; the two
+wheels provide the same module and cannot be installed together. OpenVINO also
+needs `intel-compute-runtime` and `level-zero-loader`, its `auto` device can stay
+on the CPU plugin, and forcing `device=gpu` crashes when Mesa Rusticl is also
+registered as an OpenCL ICD (restrict `OCL_ICD_VENDORS` to the Intel ICD).
+
+Compare providers on one machine with:
+
+```sh
+uv run python scripts/make_sample_audio.py --output sample.wav
+uv run python scripts/benchmark_voz.py --variants cpu,webgpu \
+  --audio sample.wav --runs 3
+```
+
+`make_sample_audio.py` reuses a Neyra Piper voice or downloads one, and writes the
+mono 16 kHz WAV Voz accepts. The benchmark script creates isolated environments
+with `uv`, so the variants cannot overwrite each other. On Windows,
+`scripts/benchmark_voz_windows.ps1` installs the locked dependencies, reports the
+display adapter, and compares CPU with DirectML (add `-Variants cpu,directml,webgpu`
+to include WebGPU). Packaged builds still need target-device verification.
 
 The native port is not yet proven equivalent on long or multilingual recordings.
 Upstream's advanced recovery for partially truncated windows and keyword boosting

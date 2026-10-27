@@ -9,6 +9,7 @@ See packaging/licenses/DesertAnt-LICENSE.md. Model weights are not bundled.
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 import threading
 import wave
@@ -16,6 +17,84 @@ import numpy as np
 
 REVISION = '12802bf4e2b5e97e1289b723bc6283b6f1a1ace5'  # v0.5.0, immutable
 FILES = ('meta.json', 'vocab.json', 'embedding.f16', 'mel.onnx', 'encoder.onnx', 'encoder.weights', 'decoder.onnx')
+
+CPU_PROVIDER = 'CPUExecutionProvider'
+GPU_SESSIONS = frozenset({'mel', 'encoder'})
+PROVIDER_OPTIONS = {
+    'CoreMLExecutionProvider': {'MLComputeUnits': 'ALL'},
+    'DmlExecutionProvider': {'device_id': 0},
+    'OpenVINOExecutionProvider': {'device_type': 'AUTO'},
+    'WebGpuExecutionProvider': {},
+}
+PLATFORM_PROVIDERS = {
+    'darwin': ('CoreMLExecutionProvider', 'WebGpuExecutionProvider'),
+    'win32': ('DmlExecutionProvider', 'WebGpuExecutionProvider'),
+    'linux': ('WebGpuExecutionProvider', 'OpenVINOExecutionProvider'),
+}
+PROVIDER_LABELS = {
+    'CoreMLExecutionProvider': 'CoreML',
+    'DmlExecutionProvider': 'DirectML',
+    'OpenVINOExecutionProvider': 'OpenVINO',
+    'WebGpuExecutionProvider': 'WebGPU',
+}
+
+
+def cache_directory():
+    """Directory for compiled execution-provider kernels."""
+    configured = os.environ.get('NEYRA_VOZ_CACHE_DIR')
+    if configured:
+        return Path(configured).expanduser()
+    if sys.platform == 'win32':
+        base = Path(os.environ.get('LOCALAPPDATA') or Path.home())
+    else:
+        base = Path(os.environ.get('XDG_CACHE_HOME') or Path.home() / '.cache')
+    return base / 'neyra' / 'voz-cache'
+
+
+def select_provider(available, platform=None, requested=None, device=None):
+    """Pick the GPU execution provider for this machine, or None for CPU only.
+
+    ``NEYRA_VOZ_ONNX_PROVIDER`` names an installed provider explicitly.
+    ``NEYRA_VOZ_DEVICE`` accepts auto (default), cpu, gpu, or webgpu.
+    """
+    platform = platform or sys.platform
+    requested = (os.environ.get('NEYRA_VOZ_ONNX_PROVIDER', '') if requested is None else requested).strip()
+    device = (os.environ.get('NEYRA_VOZ_DEVICE', 'auto') if device is None else device).strip().lower()
+    if requested:
+        if requested not in available:
+            raise ValueError(f'ONNX provider {requested} is unavailable in this Python installation.')
+        return requested
+    if device == 'cpu':
+        return None
+    if device == 'webgpu':
+        preferred = ('WebGpuExecutionProvider',)
+    elif device in ('gpu', 'auto'):
+        preferred = PLATFORM_PROVIDERS.get(platform, ())
+    else:
+        raise ValueError('NEYRA_VOZ_DEVICE must be auto, cpu, gpu, or webgpu.')
+    return next((name for name in preferred if name in available), None)
+
+
+def provider_options(provider, device=None):
+    """Session options for a provider, including the OpenVINO kernel cache."""
+    options = dict(PROVIDER_OPTIONS.get(provider, {}))
+    if provider == 'OpenVINOExecutionProvider':
+        device = (os.environ.get('NEYRA_VOZ_DEVICE', 'auto') if device is None else device).strip().lower()
+        options['device_type'] = 'GPU' if device == 'gpu' else 'AUTO'
+        directory = cache_directory()
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            options['cache_dir'] = str(directory)
+        except OSError:
+            pass
+    return options
+
+
+def session_providers(provider, name, device=None):
+    """Keep the autoregressive decoder on CPU; offload the front end and encoder."""
+    if provider and name in GPU_SESSIONS:
+        return [(provider, provider_options(provider, device)), CPU_PROVIDER]
+    return [CPU_PROVIDER]
 
 
 def model_directory(status):
@@ -145,18 +224,30 @@ class VozEngine:
         options.intra_op_num_threads = min(4, os.cpu_count() or 1)
         options.inter_op_num_threads = 1
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        provider = os.environ.get('NEYRA_VOZ_ONNX_PROVIDER', 'CPUExecutionProvider')
-        if provider not in ort.get_available_providers():
-            raise ValueError(f'ONNX provider {provider} is unavailable in this Python installation.')
-        if provider == 'DmlExecutionProvider':
+        self.device = os.environ.get('NEYRA_VOZ_DEVICE', 'auto').strip().lower()
+        self.provider = select_provider(ort.get_available_providers(), device=self.device)
+        if self.provider == 'DmlExecutionProvider':
             options.enable_mem_pattern = False
             options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-        status('loading', 'Loading Voz ONNX sessions in Python...', -1)
-        self.sessions = {name: ort.InferenceSession(str(root / (name + '.onnx')), sess_options=options, providers=[provider]) for name in ('mel', 'encoder', 'decoder')}
+        label = PROVIDER_LABELS.get(self.provider, 'CPU')
+        status('loading', f'Loading Voz ONNX sessions in Python ({label})...', -1)
+        try:
+            self.sessions = self._load_sessions(ort, root, options, self.provider, self.device)
+        except Exception:
+            if self.provider is None:
+                raise
+            status('loading', f'Voz {label} acceleration is unavailable; using the CPU.', -1)
+            self.provider = None
+            self.device = 'cpu'
+            self.sessions = self._load_sessions(ort, root, options, None, self.device)
         self.lanes = self.sessions['decoder'].get_inputs()[0].shape[0]
         if type(self.lanes) is not int or not 1 <= self.lanes <= 64:
             raise ValueError('Expected a fixed native Voz decoder batch of 1–64 lanes.')
         self._lock = threading.Lock()
+
+    def _load_sessions(self, ort, root, options, provider, device):
+        return {name: ort.InferenceSession(str(root / (name + '.onnx')), sess_options=options, providers=session_providers(provider, name, device))
+                for name in ('mel', 'encoder', 'decoder')}
 
     def check(self):
         if self.closed.is_set():

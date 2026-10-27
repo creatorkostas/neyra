@@ -32,9 +32,9 @@ uv run python -m neyra.main
 
 This uses the Python 3.12 version specified in `.python-version`.
 
-In **Voice settings**, choose **Whistle** for live text or **Voz** for a final transcript after recording stops. Selecting an engine loads its model in the background. Voz downloads about 400 MB on first use and caches the files locally. Its loaded model uses about 1.2 GB of RAM and at most four inference threads. Neyra keeps loaded models in memory until you quit.
+In **Voice settings**, choose **Whistle** for live text or **Voz** for a final transcript after recording stops. Selecting an engine loads its model in the background. Voz downloads about 1.2 GB on first use and caches the files locally. Its loaded model uses about 1.2 GB of RAM and at most four inference threads. Neyra keeps loaded models in memory until you quit.
 
-The Home capture bar shows model loading and transcription status. Voz uses Python and ONNX Runtime; no Node.js installation is required. Model weights download on first use. See [providers and Python Voz](docs/providers-and-python-voz.md) for setup, measured results, and current validation limits.
+The Home capture bar shows model loading and transcription status. Voz uses Python and ONNX Runtime, runs the encoder on the GPU when the platform build offers one (WebGPU, DirectML, or CoreML), and needs no Node.js installation. Model weights download on first use. See [providers and Python Voz](docs/providers-and-python-voz.md) for setup, measured results, and current validation limits.
 
 ## Set up dictation
 
@@ -297,6 +297,7 @@ Assistant checks cover command restrictions, clipboard preservation, reviewed so
 ## Troubleshooting
 
 - **Model errors:** test `needle whistle playground` for Whistle. For Voz, run `uv sync --locked` and allow internet access for its first model download, or configure `NEYRA_VOZ_MODEL_DIR`.
+- **Voz runs on the CPU:** check the loading message for the provider. `NEYRA_VOZ_DEVICE=gpu` forces acceleration; see [execution providers](docs/providers-and-python-voz.md) for driver requirements and `scripts/benchmark_voz.py`.
 - **No mic:** check OS microphone permissions, default input device, and PortAudio availability.
 - **No shortcuts on Wayland:** expected. Use tray and configure compositor bindings if needed.
 - **Text didn't paste:** use tray → Copy last transcript; verify focus and clipboard tools.

@@ -17,7 +17,9 @@ dependencies = [
     "soundcard>=0.4.6",
     "PyJWT[crypto]>=2.10,<3",
     "piper-tts>=1.8,<2",
-    "onnxruntime>=1.23,<2",
+    "onnxruntime-webgpu>=1.27,<2; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "onnxruntime-directml>=1.24.4,<2; sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "onnxruntime>=1.23,<2; sys_platform == 'darwin' or (sys_platform == 'linux' and platform_machine != 'x86_64') or (sys_platform == 'win32' and platform_machine != 'AMD64')",
     "huggingface-hub>=1,<3",
 ]
 
