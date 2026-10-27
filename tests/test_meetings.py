@@ -183,7 +183,7 @@ class MeetingTests(unittest.TestCase):
         process = Mock()
         process.poll.return_value = None
         worker._start_voz = Mock(return_value=process)
-        worker._read_voz_event = Mock(return_value={"event": "result", "text": "Hello", "words": words})
+        process.transcribe = Mock(return_value={"text": "Hello", "words": words})
         paths = []
         def models(request, *args, **kwargs):
             if request["operation"] == "check":
@@ -201,7 +201,7 @@ class MeetingTests(unittest.TestCase):
         chunks.put(np.ones(16000, dtype=np.float32)); chunks.put(None)
         self.assertEqual(worker._run_voz(chunks, {"speakers": True, "cleanup": True, "organize": True, "language": "fr"}), "Hello")
         self.assertTrue(paths[1].endswith("-clean.wav"))
-        self.assertEqual(json.loads(process.stdin.write.call_args.args[0])["path"], paths[1])
+        self.assertEqual(str(process.transcribe.call_args.args[0]), paths[1])
         self.assertEqual(worker.meeting_result["words"][0]["speakers"], [0])
         self.assertEqual(worker.meeting_result["timestamp_model"], "align")
         self.assertTrue(all(not Path(path).exists() for path in paths))
@@ -212,7 +212,7 @@ class MeetingTests(unittest.TestCase):
         words = [{"text": "Hello", "start": 0, "end": 0.5}]
         process = Mock(); process.poll.return_value = None
         worker._start_voz = Mock(return_value=process)
-        worker._read_voz_event = Mock(return_value={"event": "result", "text": "Hello", "words": words})
+        process.transcribe = Mock(return_value={"text": "Hello", "words": words})
         worker.meeting_models.request = Mock(side_effect=[{"capabilities": ["align"]}, {"words": words}])
         chunks = queue.Queue(); chunks.put(np.ones(16000)); chunks.put(None)
         worker._run_voz(chunks, {"speakers": False, "cleanup": False, "organize": False})
@@ -302,7 +302,7 @@ class MeetingTests(unittest.TestCase):
             command = run.call_args.args
             included = [arg for arg in command if str(arg).startswith(("--include-data-dir=", "--include-raw-dir="))]
             self.assertEqual({str(arg).rsplit("=", 1)[-1] for arg in included},
-                             {"assets/model", "assets/engine", "assets/meeting-models", "node_modules", "licenses"})
+                             {"assets/model", "assets/engine", "assets/meeting-models", "licenses"})
             self.assertIn("--jobs=12", command)
             self.assertIn("--include-package=piper", command)
             self.assertIn("--include-package-data=piper", command)

@@ -56,7 +56,7 @@ def prepare(version, archive, output):
         ("url", "https://github.com/creatorkostas/neyra"),
         ("license", ["MIT", "GPL-3.0-or-later"]),
         ("depends", [
-            "glibc", "gcc-libs", "nodejs>=22", "portaudio", "libpulse", "alsa-lib",
+            "glibc", "gcc-libs", "portaudio", "libpulse", "alsa-lib",
             "dbus", "fontconfig", "freetype2", "glib2", "libgl", "libx11", "libxcb",
             "libxext", "libxrender", "libxi", "libxkbcommon", "libxkbcommon-x11",
             "xcb-util-cursor", "xcb-util-image", "xcb-util-keysyms",

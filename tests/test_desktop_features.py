@@ -224,24 +224,16 @@ class RuntimeAndStartup(unittest.TestCase):
         self.addCleanup(worker.close)
         statuses = []
         worker.model_status.connect(lambda *args: statuses.append(args))
-        popen = subprocess.Popen
-        code = """
-import json, sys, time
-time.sleep(0.05)
-for event in [{'event':'download','file':'encoder','loaded':25*1048576,'total':100*1048576}, {'event':'ready'}]:
-    print(json.dumps(event), flush=True)
-for line in sys.stdin:
-    pass
-"""
-        def launch(*args, **kwargs):
-            kwargs.pop("cwd", None)
-            return popen([sys.executable, "-u", "-c", code], **kwargs)
-        with patch("neyra.stt.shutil.which", return_value=sys.executable), patch("neyra.stt.subprocess.Popen", side_effect=launch) as spawned:
+        engine = Mock()
+        def load(progress, closed):
+            progress("downloading", "encoder", 25)
+            return engine
+        with patch("neyra.voz.VozEngine", side_effect=load) as loaded:
             worker.prepare_voz()
-            process = worker._start_voz()
+            runtime = worker._start_voz()
             worker._voz_prepare_thread.join(timeout=2)
-            self.assertIs(process, worker._start_voz())
-            self.assertEqual(spawned.call_count, 1)
+            self.assertIs(runtime, worker._start_voz())
+            self.assertEqual(loaded.call_count, 1)
         APP.processEvents()
         self.assertTrue(worker._voz_ready)
         self.assertTrue(any(state == "downloading" and percent == 25 for _, state, _, percent in statuses))

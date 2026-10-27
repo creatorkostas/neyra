@@ -252,26 +252,16 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(results, ["", ""])
         self.assertIs(assistant.thread(), APP.thread())
 
-    def test_voz_drains_stderr_handles_unicode_and_reuses_process(self):
+    def test_voz_handles_unicode_and_reuses_python_sessions(self):
         worker = Transcriber()
         self.addCleanup(worker.close)
-        popen = subprocess.Popen
-        code = """
-import json, sys
-print('runtime diagnostic', flush=True)
-sys.stderr.write('warning\\n' * 20000); sys.stderr.flush()
-print(json.dumps({'event': 'ready'}), flush=True)
-for line in sys.stdin:
-    print(json.dumps({'event':'result','text':'Hello café.'}, ensure_ascii=False), flush=True)
-"""
-        def launch(*args, **kwargs):
-            kwargs.pop("cwd", None)
-            return popen([sys.executable, "-X", "utf8", "-u", "-c", code], **kwargs)
-        with patch("neyra.stt.subprocess.Popen", side_effect=launch):
+        with patch("neyra.voz.VozEngine") as engine:
+            engine.return_value.transcribe.return_value = {"text": "Hello café."}
             for _ in range(2):
                 chunks = queue.Queue()
                 chunks.put(np.ones(1600, dtype=np.float32)); chunks.put(None)
                 self.assertEqual(worker._run_voz(chunks), "Hello café.")
+            engine.assert_called_once()
         self.assertTrue(worker._voz_ready)
 
     def test_voz_failure_discards_process_and_allows_retry(self):
@@ -281,7 +271,7 @@ for line in sys.stdin:
             chunks = queue.Queue(); chunks.put(np.ones(160)); chunks.put(None)
             with self.assertRaisesRegex(RuntimeError, "load failed"):
                 worker._run_voz(chunks)
-        self.assertIsNone(worker._voz_process)
+        self.assertIsNone(worker._voz_engine)
         self.assertFalse(worker._voz_ready)
         chunks = queue.Queue(); chunks.put(None)
         self.assertEqual(worker._run_voz(chunks), "")

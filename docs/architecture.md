@@ -20,8 +20,8 @@ Dictation flows from `audio.py` into `stt.py`, through local text formatting in
 handles pasting into the focused application. Reminder and assistant recording
 modes route the transcript to their own handlers instead of pasting it.
 
-Assistant commands first use the bounded local parser. With a connected ChatGPT
-account, unrecognized requests use a cancellable intent job. The model returns
+Assistant commands first use the bounded local parser. Unrecognized requests use local Needle 3 in a cancellable intent job, independent
+of the assistant connection. The router returns
 one canonical command or a clarification; schema validation and the same local
 parser gate dispatch. Intent context includes bounded recent request/answer text when enabled, but
 excludes raw note bodies, selected text, screenshots, and executable paths. Interpretation never grants arbitrary code or shell access.
@@ -31,12 +31,12 @@ excludes raw note bodies, selected text, screenshots, and executable paths. Inte
 | Area | Files | Responsibility |
 | --- | --- | --- |
 | App lifecycle | `main.py`, `ui.py` | Recording modes, dashboard, overlay, tray, and shutdown |
-| Speech | `speech.py`, `reply_stream.py`, `audio.py`, `stt.py`, `bundled.py`, `voz_transcribe.mjs` | Microphone capture, speech workers, bundled models, and the Voz subprocess |
+| Speech | `speech.py`, `reply_stream.py`, `audio.py`, `stt.py`, `bundled.py`, `voz.py`, `voz_usage.py` | Microphone capture, speech workers, bundled models, and the Python/ONNX Voz engine |
 | Desktop integration | `hotkeys.py`, `shortcuts.py`, `desktop.py`, `speaker_mute.py`, `startup.py` | Validated shortcut preferences and global key events, clipboard/paste, and supported login startup entries |
 | Reminders | `reminders.py`, `reminders_ui.py` | Time parsing, persistence, scheduling, and notifications |
 | Assistant | `assistant_tools.py`, `assistant_features.py`, `assistant_ui.py`, `conversation.py` | Bounded local commands, reviewed context, background jobs, and assistant panels |
 | Screen context | `screen_context.py` | Explicit phrase detection and one-display, memory-only JPEG capture on the GUI thread |
-| ChatGPT | `chatgpt.py` | Neyra-owned OAuth accounts, credential storage, streamed responses, and reported token-usage capture |
+| Providers | `chatgpt.py`, `providers.py`, `intent.py` | Neyra-owned OAuth accounts, credential storage, streamed responses, and reported token-usage capture |
 | Result reuse | `response_cache.py` | Bounded, account-scoped, short-lived in-memory reuse of completed read-only assistant results |
 | Analytics | `analytics.py` | Local per-account token counters and saved-note statistics; no note text in token storage |
 | Data preferences | `preferences_ui.py`, `data_transfer.py` | Shortcut editing, note export, portable backup validation, and atomic file writes |
@@ -90,3 +90,8 @@ All Python files in this table live under `neyra/` unless another path is shown.
 
 Read [CONTRIBUTING.md](../CONTRIBUTING.md) for setup and verification commands.
 Update this guide when module ownership or runtime flow changes.
+
+Provider, local tool routing, theme, and Voz migration details are documented in
+[providers and Python Voz](providers-and-python-voz.md). Voice settings stores the
+provider configuration; `themes.py` owns the dark palette. External provider replies
+never dispatch tools. Node is no longer a runtime or build dependency.

@@ -41,7 +41,10 @@ PATHS = {
 }
 
 
-def icon(name, size=20, color="#1b233c"):
+def icon(name, size=20, color=None):
+    if color is None:
+        from .themes import color as theme_color
+        color = theme_color("#1b233c")
     svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke="{color}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{PATHS[name]}</g></svg>'
     pixmap = QPixmap(size * 2, size * 2)
     pixmap.fill(Qt.GlobalColor.transparent)
@@ -73,6 +76,7 @@ def app_icon():
 def icon_button(name, tooltip, parent=None):
     button = QPushButton(parent)
     button.setObjectName("iconButton")
+    button.setProperty("neyra_icon", name)
     button.setIcon(icon(name))
     button.setIconSize(QSize(18, 18))
     button.setFixedSize(30, 30)
@@ -357,6 +361,7 @@ class NotetakerPanel(QWidget):
         header.addWidget(settings)
         self.start_button = QPushButton("Start Notetaker")
         self.start_button.setObjectName("meetingStart")
+        self.start_button.setProperty("neyra_icon", "notetaker")
         self.start_button.setIcon(icon("notetaker", 17))
         self.start_button.clicked.connect(self.toggle_recording)
         header.addWidget(self.start_button)
@@ -601,7 +606,8 @@ class NotetakerPanel(QWidget):
         dialog = QDialog(self)
         dialog.setWindowTitle("Meeting notes")
         dialog.resize(760, 560)
-        dialog.setStyleSheet(THEME)
+        from .themes import stylesheet
+        dialog.setStyleSheet(stylesheet())
         box = QVBoxLayout(dialog)
         box.setContentsMargins(24, 24, 24, 24)
         title = QLineEdit(record.get("title") or "Meeting notes")

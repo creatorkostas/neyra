@@ -22,4 +22,6 @@ def configure_bundled_runtime():
         raise RuntimeError(f"Expected one bundled Cactus engine library under {engine_dir}, got {libs}")
     os.environ["NEEDLE_WHISTLE_WEIGHTS"] = str(weights[0])
     os.environ["NEEDLE3_LIB_PATH"] = str(libs[0])
-    os.environ["HF_HUB_OFFLINE"] = "1"
+    tools = list((assets / "model").rglob("needle3.cact"))
+    if len(tools) == 1:
+        os.environ["NEYRA_NEEDLE_WEIGHTS"] = str(tools[0])

@@ -41,10 +41,6 @@ jobs:
             mode: --standalone
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
       - uses: astral-sh/setup-uv@v10.3.2
         with:
           python-version: "3.12"
@@ -54,12 +50,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential patchelf
       - name: Install project and build dependencies
         run: uv sync --locked --extra build --no-dev
-      - name: Install Voz runtime dependencies
-        run: npm ci --omit=dev
       - name: Check installed Piper runtime
         run: uv run --no-dev --locked python scripts/check_piper.py
       - name: Check installed Voz runtime
-        run: node scripts/check_voz.mjs
+        run: uv run --no-dev --locked python scripts/check_voz.py
       - name: Build executable
         run: uv run --no-dev --locked --extra build python scripts/build.py ${{ matrix.mode }}
       - name: Package Linux executable

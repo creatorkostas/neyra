@@ -47,6 +47,8 @@ class AssistantIntegrationTests(unittest.TestCase):
         self.owner.engine.run = Mock()
         self.features = self.owner.assistant_features
         self.panel = self.owner.history.assistant_panel
+        self.router = self.features.needle_router = Mock()
+        self.router.route.return_value = None
 
     def test_assistant_reveals_controls_only_for_the_current_step(self):
         self.assertTrue(self.panel.language.isHidden())
@@ -54,7 +56,7 @@ class AssistantIntegrationTests(unittest.TestCase):
         self.assertFalse(self.panel.language.isHidden())
         self.panel.selection_mode.setCurrentText("Summarize")
         self.assertTrue(self.panel.language.isHidden())
-        self.assertEqual(self.panel.explain.text(), "Summarize with ChatGPT")
+        self.assertEqual(self.panel.explain.text(), "Summarize with assistant")
         self.assertTrue(self.panel.selection_answer.isHidden())
         self.panel.selection_answer.setPlainText("A concise result.")
         self.assertFalse(self.panel.selection_answer.isHidden())
@@ -135,32 +137,32 @@ class AssistantIntegrationTests(unittest.TestCase):
         self.connect_intent_account()
         self.panel.selection.setPlainText("Private selected content")
         self.owner.history.records.append({"text": "Private saved content", "time": "2026-10-24T12:00:00"})
-        self.client.respond.return_value = '{"command":"show today"}'
+        self.router.route.return_value = '{"command":"show today"}'
         self.features.command("Could you show me what my day looks like?")
         self.finish_job()
         QTest.qWait(20)
         self.assertEqual(self.panel.tabs.currentIndex(), 4)
-        sent = self.client.respond.call_args.args[1]
+        sent = self.router.route.call_args.args[0]
         self.assertIn("what my day looks like", sent)
         self.assertNotIn("Private selected content", sent)
         self.assertNotIn("Private saved content", sent)
-        self.assertEqual(self.client.respond.call_count, 1)
+        self.assertEqual(self.router.route.call_count, 1)
 
     def test_natural_selection_does_not_focus_dashboard_before_capture(self):
         self.connect_intent_account()
-        self.client.respond.return_value = '{"command":"summarize selected text"}'
+        self.router.route.return_value = '{"command":"summarize selected text"}'
         with patch.object(self.features, "capture_selection") as capture, patch.object(self.features, "show") as show:
             self.features.command("Can you shorten the text I highlighted?")
             self.finish_job()
             QTest.qWait(20)
             capture.assert_called_once()
             show.assert_not_called()
-        self.assertEqual(self.client.respond.call_count, 1)
+        self.assertEqual(self.router.route.call_count, 1)
 
     def test_bad_ai_intent_and_missing_preview_execute_nothing(self):
         self.connect_intent_account()
         for answer in ('{"command":"run powershell"}', '{"command":"send this text"}'):
-            self.client.respond.return_value = answer
+            self.router.route.return_value = answer
             self.features.command("Do something for me")
             self.finish_job()
             QTest.qWait(20)
@@ -170,15 +172,15 @@ class AssistantIntegrationTests(unittest.TestCase):
 
     def test_intent_clarification_keeps_previous_request_for_next_utterance(self):
         self.connect_intent_account()
-        self.client.respond.return_value = '{"clarification":"How long from now?"}'
+        self.router.route.return_value = '{"clarification":"How long from now?"}'
         self.features.command("I need to remember to call Alex")
         self.finish_job()
         self.assertIn("How long", self.panel.status.text())
-        self.client.respond.return_value = '{"command":"show today"}'
+        self.router.route.return_value = '{"command":"show today"}'
         self.features.command("In about an hour")
         self.finish_job()
         QTest.qWait(20)
-        self.assertIn("remember to call Alex", self.client.respond.call_args.args[1])
+        self.assertIn("remember to call Alex", self.router.route.call_args.args[0])
         self.assertIsNone(self.features.intent_clarification)
 
     def test_cancelled_interpretation_does_not_dispatch(self):
@@ -186,14 +188,14 @@ class AssistantIntegrationTests(unittest.TestCase):
         def respond(*args, **kwargs):
             self.features.job.cancelled.set()
             return '{"command":"show today"}'
-        self.client.respond.side_effect = respond
+        self.router.route.side_effect = respond
         with patch.object(self.features, "refresh_briefing") as refresh:
             self.features.command("How is my day looking?")
             self.finish_job()
             self.assertFalse(self.features.intent_pending)
             self.assertIn("Cancelled", self.panel.status.text())
             self.assertEqual(self.panel.tabs.currentIndex(), 0)
-        self.client.respond.side_effect = None
+        self.router.route.side_effect = None
 
     def test_account_usage_labels_do_not_fabricate_quota_and_analytics_uses_active_account(self):
         self.connect_intent_account()
@@ -219,7 +221,7 @@ class AssistantIntegrationTests(unittest.TestCase):
         self.finish_job()
         self.features.explain()
         self.assertEqual(self.client.respond.call_count, 1)
-        self.assertIn("No new ChatGPT request", self.panel.status.text())
+        self.assertIn("No new assistant request", self.panel.status.text())
         self.panel.selection.setPlainText("Different text.")
         self.features.explain()
         self.finish_job()
@@ -337,7 +339,7 @@ class AssistantIntegrationTests(unittest.TestCase):
 
     def test_general_voice_question_has_a_direct_spoken_answer(self):
         self.connect_intent_account()
-        self.client.respond.return_value = '{"answer":"Photosynthesis is how plants use light to make food."}'
+        self.client.respond.return_value = 'Photosynthesis is how plants use light to make food.'
         with patch.object(self.owner, "show_history") as show:
             self.features.command("Can you explain photosynthesis?", spoken=True)
             self.finish_job()
@@ -348,7 +350,7 @@ class AssistantIntegrationTests(unittest.TestCase):
 
     def test_voice_clarification_is_spoken_without_opening_ui(self):
         self.connect_intent_account()
-        self.client.respond.return_value = '{"clarification":"When should I remind you?"}'
+        self.router.route.return_value = '{"clarification":"When should I remind you?"}'
         with patch.object(self.owner, "show_history") as show:
             self.features.command("I need to call Alex sometime", spoken=True)
             self.finish_job()
@@ -375,17 +377,17 @@ class AssistantIntegrationTests(unittest.TestCase):
 
     def test_voice_followup_uses_recent_answer_and_forget_clears_it(self):
         self.connect_intent_account()
-        self.client.respond.return_value = '{"answer":"The best approach is to start small and test."}'
+        self.client.respond.return_value = 'The best approach is to start small and test.'
         self.features.command("How should I start?", spoken=True)
         self.finish_job()
-        self.client.respond.return_value = '{"answer":"Start small, then test."}'
+        self.client.respond.return_value = 'Start small, then test.'
         self.features.command("Make that shorter", spoken=True)
         self.finish_job()
         sent = json.loads(self.client.respond.call_args.args[1])
         self.assertEqual(sent["recent_conversation"][0]["answer"], "The best approach is to start small and test.")
         self.features.command("forget our conversation", spoken=True)
         self.assertEqual(self.features.conversation.context("connected"), [])
-        self.client.respond.return_value = '{"answer":"A fresh start."}'
+        self.client.respond.return_value = 'A fresh start.'
         self.features.command("A new question please", spoken=True)
         self.finish_job()
         self.assertEqual(json.loads(self.client.respond.call_args.args[1])["recent_conversation"], [])
@@ -396,7 +398,7 @@ class AssistantIntegrationTests(unittest.TestCase):
         self.features.conversation.remember("connected", "question", "private answer")
         self.owner.history.conversation_memory_toggle.setChecked(False)
         self.assertEqual(self.features.conversation.context("connected"), [])
-        self.client.respond.return_value = '{"answer":"New answer."}'
+        self.client.respond.return_value = 'New answer.'
         self.features.command("A new question", spoken=True)
         self.finish_job()
         self.assertNotIn("recent_conversation", json.loads(self.client.respond.call_args.args[1]))
@@ -428,7 +430,7 @@ class AssistantIntegrationTests(unittest.TestCase):
 
     def test_ordinary_question_and_cancelled_capture_do_not_take_screenshots(self):
         self.connect_intent_account()
-        self.client.respond.return_value = '{"answer":"A normal answer."}'
+        self.client.respond.return_value = 'A normal answer.'
         with patch("neyra.assistant_features.capture_screen") as capture:
             self.features.command("Explain gravity", spoken=True)
             self.finish_job()
@@ -483,7 +485,7 @@ class AssistantIntegrationTests(unittest.TestCase):
         self.finish_job()
         self.client.active_id = "other"
         self.client.accounts.return_value = [{"id": "other", "connected": True, "label": "Other"}]
-        self.client.respond.return_value = '{"answer":"A new answer."}'
+        self.client.respond.return_value = 'A new answer.'
         self.features.command("In an hour", spoken=True)
         self.finish_job()
         self.assertNotIn("previous_request", json.loads(self.client.respond.call_args.args[1]))
@@ -492,12 +494,12 @@ class AssistantIntegrationTests(unittest.TestCase):
         self.connect_intent_account()
         self.features.get_client()
         self.features.conversation.remember("connected", "What is my next task?", "Call Alex about the slides.")
-        self.client.respond.return_value = '{"command":"remind me in an hour to call Alex about the slides"}'
+        self.router.route.return_value = '{"command":"remind me in an hour to call Alex about the slides"}'
         self.features.command("remind me in an hour to do that", spoken=True)
         self.finish_job()
         QTest.qWait(30)
         self.assertEqual(self.owner.reminder_store.records[0]["text"].casefold(), "call alex about the slides")
-        self.assertIn("Call Alex", self.client.respond.call_args.args[1])
+        self.assertIn("Call Alex", self.router.route.call_args.args[0])
 
     def test_cancelled_request_does_not_reopen_the_overlay(self):
         self.features.job_voice = True
@@ -537,12 +539,12 @@ class AssistantIntegrationTests(unittest.TestCase):
         speech.speak.assert_not_called()
         self.client.respond.side_effect = None
 
-    def test_general_json_answer_streams_only_answer_text(self):
+    def test_general_answer_streams_plain_provider_text(self):
         self.connect_intent_account()
         def respond(instructions, text, cancel, on_delta, **kwargs):
-            for chunk in ('{"ans', 'wer":"A spoken sentence. ', 'Another sentence."}'):
+            for chunk in ('A spoken sentence. ', 'Another sentence.'):
                 on_delta(chunk)
-            return '{"answer":"A spoken sentence. Another sentence."}'
+            return 'A spoken sentence. Another sentence.'
         self.client.respond.side_effect = respond
         self.features.command("Explain something useful", spoken=True)
         self.finish_job()
@@ -642,8 +644,10 @@ class AssistantIntegrationTests(unittest.TestCase):
     def finish_job(self):
         for _ in range(100):
             QTest.qWait(10)
-            if not self.features.job.running:
-                break
+            if not self.features.job.running and not self.features.continuation_pending:
+                QTest.qWait(20)
+                if not self.features.job.running:
+                    break
         self.assertFalse(self.features.job.running)
 
     def test_assistant_shortcut_is_distinct_and_repeats_do_not_toggle(self):

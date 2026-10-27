@@ -122,3 +122,65 @@ class DataPanel(QScrollArea):
     def set_busy(self, busy):
         for button in (self.export, self.backup, self.restore):
             button.setEnabled(not busy)
+
+
+class ProviderPanel(QWidget):
+    changed = Signal()
+
+    def __init__(self, settings):
+        super().__init__()
+        from PySide6.QtWidgets import QComboBox, QFormLayout
+        self.settings = settings
+        form = QFormLayout(self)
+        self.provider = QComboBox()
+        for label, value in [('ChatGPT', 'chatgpt'), ('Local model server', 'local'), ('OpenCode API', 'opencode_api'), ('OpenCode CLI', 'opencode_cli'), ('No assistant (local tools only)', 'none')]:
+            self.provider.addItem(label, value)
+        self.url = QLineEdit()
+        self.model = QLineEdit()
+        self.executable = QLineEdit(settings.value('opencode_executable', 'opencode'))
+        for label, field in [('Provider', self.provider), ('Server URL', self.url), ('Model', self.model), ('OpenCode executable', self.executable)]:
+            field.setAccessibleName(label)
+            form.addRow(label, field)
+        self.note = description('')
+        form.addRow(self.note)
+        save = QPushButton('Apply provider')
+        save.clicked.connect(self.save)
+        form.addRow(save)
+        self.provider.setCurrentIndex(max(0, self.provider.findData(settings.value('assistant_provider', 'chatgpt'))))
+        self.provider.currentIndexChanged.connect(self.load)
+        self.load()
+
+    def load(self):
+        kind = self.provider.currentData()
+        self.url.setText(self.settings.value(kind + '_url', 'http://127.0.0.1:4096' if kind == 'opencode_api' else 'http://127.0.0.1:11434/v1'))
+        self.model.setText(self.settings.value(kind + '_model', ''))
+        self.url.setEnabled(kind in ('local', 'opencode_api'))
+        self.model.setEnabled(kind in ('local', 'opencode_api', 'opencode_cli'))
+        self.executable.setEnabled(kind == 'opencode_cli')
+        self.note.setText({'local': 'Use an OpenAI-compatible local server, such as Ollama, LM Studio, or llama.cpp. Enter its model name. Optional key: NEYRA_ASSISTANT_API_KEY environment variable.',
+                           'opencode_api': 'Start opencode serve. Optional model: provider/model. Authentication uses OPENCODE_SERVER_PASSWORD and OPENCODE_SERVER_USERNAME.',
+                           'opencode_cli': 'Uses your installed OpenCode and its signed-in providers. Optional model: provider/model. Desktop actions stay in Neyra.',
+                           'none': 'Needle 3 understands local tool requests. Summaries, translations, and general questions need an assistant provider.',
+                           'chatgpt': 'Sign in on the Assistant page. Local tool routing uses Needle 3 independently.'}[kind])
+
+    def save(self):
+        from .providers import endpoint
+        kind = self.provider.currentData()
+        try:
+            if kind in ('local', 'opencode_api'):
+                endpoint(self.url.text().strip())
+            if kind == 'local' and not self.model.text().strip():
+                raise ValueError('Enter a local model name.')
+            if kind.startswith('opencode') and self.model.text().strip() and '/' not in self.model.text():
+                raise ValueError('Use provider/model for an OpenCode model.')
+            if kind == 'opencode_cli' and not self.executable.text().strip():
+                raise ValueError('Enter the OpenCode executable name or path.')
+        except ValueError as exc:
+            self.note.setText(str(exc))
+            return
+        self.settings.setValue('assistant_provider', kind)
+        self.settings.setValue(kind + '_url', self.url.text().strip())
+        self.settings.setValue(kind + '_model', self.model.text().strip())
+        self.settings.setValue('opencode_executable', self.executable.text().strip())
+        self.changed.emit()
+        self.note.setText('Provider saved. It will be used for the next assistant request.')

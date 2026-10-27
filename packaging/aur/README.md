@@ -60,9 +60,9 @@ neyra
 ```
 
 Review every `namcap` warning. The onefile embeds PySide6/Qt, Python dependencies,
-models, and Voz npm dependencies, so static dependency inspection alone cannot
-prove that its extracted libraries load correctly. No `npm install` runs on the
-user's machine. Node.js 22 or newer is a runtime dependency for Voz. PortAudio,
+models, and Python ONNX Runtime, so static dependency inspection alone cannot
+prove that its extracted libraries load correctly. No Node.js installation is required on the
+user's machine. PortAudio,
 ALSA, PulseAudio client libraries, and Qt's host X11/XCB, graphics, font, and DBus
 libraries are declared explicitly. Qt itself comes from the onefile payload.
 `!strip` preserves Nuitka's appended executable payload.
