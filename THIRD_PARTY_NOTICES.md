@@ -7,6 +7,9 @@ include third-party software under its own licenses.
   `packaging/licenses/Piper-COPYING.txt` and the [upstream source](https://github.com/OHF-Voice/piper1-gpl).
 - **ONNX Runtime**: MIT license. See `packaging/licenses/ONNXRuntime-LICENSE.txt`
   and the [upstream source](https://github.com/microsoft/onnxruntime).
+- **ONNX** (used once to rewrite the Voz decoder batch): Apache License, version
+  2.0. See `packaging/licenses/ONNX-LICENSE.txt` and the
+  [upstream source](https://github.com/onnx/onnx).
 
 The build script includes these license texts in the app's `licenses` directory.
 Piper voice weights download separately on first use. The default voice is

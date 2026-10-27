@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "packaging" / "aur"
-LOCAL_SOURCES = ("neyra", "neyra.desktop", "neyra.svg", "LICENSE", "Piper-COPYING.txt", "ONNXRuntime-LICENSE.txt")
+LOCAL_SOURCES = ("neyra", "neyra.desktop", "neyra.svg", "LICENSE", "Piper-COPYING.txt", "ONNXRuntime-LICENSE.txt", "ONNX-LICENSE.txt")
 
 
 def sha256(path):
@@ -36,7 +36,8 @@ def prepare(version, archive, output):
 
     license_files = {"LICENSE": ROOT / "LICENSE",
                      "Piper-COPYING.txt": ROOT / "packaging/licenses/Piper-COPYING.txt",
-                     "ONNXRuntime-LICENSE.txt": ROOT / "packaging/licenses/ONNXRuntime-LICENSE.txt"}
+                     "ONNXRuntime-LICENSE.txt": ROOT / "packaging/licenses/ONNXRuntime-LICENSE.txt",
+                     "ONNX-LICENSE.txt": ROOT / "packaging/licenses/ONNX-LICENSE.txt"}
     sources = {
         name: license_files.get(name, TEMPLATE / name).read_text(
             encoding="utf-8"
@@ -54,7 +55,7 @@ def prepare(version, archive, output):
         ("pkgdesc", "Local desktop dictation assistant with Whistle and Voz (prebuilt)"),
         ("arch", ["x86_64"]),
         ("url", "https://github.com/creatorkostas/neyra"),
-        ("license", ["MIT", "GPL-3.0-or-later"]),
+        ("license", ["MIT", "GPL-3.0-or-later", "Apache-2.0"]),
         ("depends", [
             "glibc", "gcc-libs", "portaudio", "libpulse", "alsa-lib",
             "dbus", "fontconfig", "freetype2", "glib2", "libgl", "libx11", "libxcb",

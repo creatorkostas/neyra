@@ -56,6 +56,8 @@ def main():
         "--include-package-data=piper",
         # Nuitka's ONNX plugin includes native libraries; package data duplicates versioned .so files.
         "--include-package=onnxruntime",
+        # Rewrites the Voz decoder for dynamic lanes at first use.
+        "--include-package=onnx",
         "--include-data-dir=packaging/licenses=licenses",
         "--include-package=needle",
         "--include-package=neyra",
