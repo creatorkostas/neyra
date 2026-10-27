@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neyra"
-version = "0.1.2"
+version = "0.1.4"
 description = "Neyra: local desktop dictation assistant using PySide6, Whistle, or Voz"
 requires-python = ">=3.11,<3.14"
 dependencies = [
