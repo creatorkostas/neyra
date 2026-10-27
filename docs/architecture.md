@@ -31,7 +31,7 @@ excludes raw note bodies, selected text, screenshots, and executable paths. Inte
 | Area | Files | Responsibility |
 | --- | --- | --- |
 | App lifecycle | `main.py`, `ui.py` | Recording modes, dashboard, overlay, tray, and shutdown |
-| Speech | `speech.py`, `reply_stream.py`, `audio.py`, `stt.py`, `bundled.py`, `voz.py`, `voz_usage.py` | Microphone capture, speech workers, bundled models, and the Python/ONNX Voz engine |
+| Speech | `speech.py`, `reply_stream.py`, `audio.py`, `stt.py`, `bundled.py`, `voz.py` | Microphone capture, speech workers, bundled models, and the Python/ONNX Voz engine |
 | Desktop integration | `hotkeys.py`, `shortcuts.py`, `desktop.py`, `speaker_mute.py`, `startup.py` | Validated shortcut preferences and global key events, clipboard/paste, and supported login startup entries |
 | Reminders | `reminders.py`, `reminders_ui.py` | Time parsing, persistence, scheduling, and notifications |
 | Assistant | `assistant_tools.py`, `assistant_features.py`, `assistant_ui.py`, `conversation.py` | Bounded local commands, reviewed context, background jobs, and assistant panels |
@@ -94,4 +94,5 @@ Update this guide when module ownership or runtime flow changes.
 Provider, local tool routing, theme, and Voz migration details are documented in
 [providers and Python Voz](providers-and-python-voz.md). Voice settings stores the
 provider configuration; `themes.py` owns the dark palette. External provider replies
-never dispatch tools. Node is no longer a runtime or build dependency.
+never dispatch tools. Node is not a runtime or build dependency; it is a
+development-only tool for the website JavaScript check.

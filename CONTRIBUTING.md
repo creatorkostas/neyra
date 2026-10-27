@@ -3,7 +3,8 @@
 ## Set up development
 
 Install Git and uv. Use Python 3.12, as specified in
-`.python-version`.
+`.python-version`. Install Node.js 20 or newer only for the website JavaScript
+check; Neyra does not use Node at runtime or when building the desktop app.
 
 ```sh
 uv sync --locked --group dev
@@ -26,6 +27,7 @@ Run the same checks used for pull requests:
 uv run --locked ruff check neyra scripts tests packaging/aur/check_generator.py
 uv run --locked python scripts/check_voz.py
 uv run --locked python scripts/check_piper.py
+node --check website/site.js
 uv run --locked python -m unittest discover -s tests -v
 uv run --locked python packaging/aur/check_generator.py
 ```

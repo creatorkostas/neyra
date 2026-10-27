@@ -18,8 +18,8 @@ Their model cards describe their separate voice licensing and attribution.
 
 ## Python Voz adaptation
 
-`neyra/voz.py` and `neyra/voz_usage.py` adapt Desert Ant Labs source and remain
-subject to its Source-Available License, not MIT. Copyright © 2026 Desert Ant
+`neyra/voz.py` adapts Desert Ant Labs source and remains subject to its
+Source-Available License, not MIT. Copyright © 2026 Desert Ant
 Labs B.V. See `packaging/licenses/DesertAnt-LICENSE.md` and
 [the runtime notes](docs/providers-and-python-voz.md). Voz is powered by
 [Desert Ant Labs](https://desertant.com).

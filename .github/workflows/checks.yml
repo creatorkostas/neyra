@@ -4,13 +4,11 @@ on:
   pull_request:
     paths-ignore:
       - "**/*.md"
-      - "website/**"
       - ".github/workflows/pages.yml"
   push:
     branches: [main]
     paths-ignore:
       - "**/*.md"
-      - "website/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -35,6 +33,9 @@ jobs:
       PYTHONFAULTHANDLER: "1"
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
       - uses: astral-sh/setup-uv@v10.3.2
         with:
           python-version: "3.12"
@@ -49,6 +50,8 @@ jobs:
         run: uv sync --locked --group dev
       - name: Check Python
         run: uv run --locked ruff check neyra scripts tests packaging/aur/check_generator.py
+      - name: Check website JavaScript
+        run: node --check website/site.js
       - name: Check installed Piper runtime
         run: uv run --locked python scripts/check_piper.py
       - name: Check installed Voz runtime

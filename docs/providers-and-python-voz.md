@@ -87,19 +87,19 @@ the cut audio. These are one-machine smoke measurements, not performance promise
 or word-error-rate benchmarks. Unit tests cover framing, masks, overlap joining,
 provider protocols, and the local routing guards.
 
-### Attribution and usage reporting
+### Attribution
 
 Voz is powered by [Desert Ant Labs](https://desertant.com). The adapted pipeline
-and usage-reporting modules remain under the Desert Ant Labs Source-Available
-License; see `packaging/licenses/DesertAnt-LICENSE.md`. They are exceptions to the
-repository's MIT license. Model downloads retain upstream terms. The Python port
-preserves monthly install reporting (random install ID, app/model/SDK identifiers;
-no audio or transcript). License grants are signature-checked, cached, activated,
-and retried without blocking offline inference. A live reporting-server contract
-check is still needed before a production release.
+remains under the Desert Ant Labs Source-Available License; see
+`packaging/licenses/DesertAnt-LICENSE.md`. It is an exception to the repository's
+MIT license. Model downloads retain upstream terms.
+
+Neyra performs no install reporting, license activation, or other calls to Desert
+Ant Labs servers. Transcription and model downloads are the only network use, and
+model downloads already require an explicit first-use fetch.
 
 Upstream code inspected: `Desert-Ant-Labs/desert-ant-core` commit
 `541a9ce4a148e9308a99f1edbfd927906394b686`, especially `Sources/Voz/Pipeline.swift`,
-`Words.swift`, `Engine+Onnx.swift`, `Buffers.swift`, and `Sources/Usage`.
+`Words.swift`, `Engine+Onnx.swift`, and `Buffers.swift`.
 Provider references: <https://opencode.ai/docs/server/> and
 <https://opencode.ai/docs/cli/>. Needle API: <https://github.com/cactus-compute/needle/blob/main/llms.txt>.

@@ -157,9 +157,6 @@ class VozEngine:
         if type(self.lanes) is not int or not 1 <= self.lanes <= 64:
             raise ValueError('Expected a fixed native Voz decoder batch of 1–64 lanes.')
         self._lock = threading.Lock()
-        from .voz_usage import VozUsage
-        self.usage = VozUsage()
-        self.usage.start()
 
     def check(self):
         if self.closed.is_set():
@@ -268,4 +265,3 @@ class VozEngine:
 
     def close(self):
         self.closed.set()
-        self.usage.close()
