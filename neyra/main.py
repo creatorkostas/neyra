@@ -28,6 +28,7 @@ from .assistant_ui import AssistantPanel
 from .assistant_features import AssistantFeatures
 from .home_ui import HomePanel
 from .preferences_ui import ShortcutsPanel, DataPanel
+from .companion_ui import CompanionController
 from .shortcuts import load_bindings, validate_bindings, shortcut_label
 
 
@@ -1138,6 +1139,10 @@ class Assistant(QObject):
         self._meeting_audio = None
         self._meeting_capture_warnings = []
         self.history = HistoryDashboard()
+        self.companion = CompanionController(self)
+        companion_button = QPushButton("Android companion")
+        companion_button.clicked.connect(self.companion.show)
+        self.history.data_panel.widget().layout().insertWidget(0, companion_button)
         self.speaker_mute = SpeakerMute(on_error=self.speaker_mute_error.emit)
         self.speaker_mute_error.connect(lambda message: self.history.desktop_status.setText(message))
         self.history.mute_while_speaking_toggle.toggled.connect(self.change_recording_mute)
@@ -1177,7 +1182,7 @@ class Assistant(QObject):
         self.tray_status = menu.addAction("Ready to dictate")
         self.tray_status.setEnabled(False)
         menu.addSeparator()
-        for title, action in [("Start dictation", self.toggle), ("Speak a reminder", self.toggle_reminder), ("Speak a command", self.toggle_assistant), ("Assistant", self.assistant_features.show), ("Reminders", self.show_reminders), ("Stop Notetaker", self.stop_notetaker), ("Open Neyra", self.show_history), ("Copy last transcript", self.copy_last), ("Settings", self.show_settings), ("Quit Neyra", self.quit)]:
+        for title, action in [("Start dictation", self.toggle), ("Speak a reminder", self.toggle_reminder), ("Speak a command", self.toggle_assistant), ("Assistant", self.assistant_features.show), ("Reminders", self.show_reminders), ("Stop Notetaker", self.stop_notetaker), ("Android companion", self.companion.show), ("Open Neyra", self.show_history), ("Copy last transcript", self.copy_last), ("Settings", self.show_settings), ("Quit Neyra", self.quit)]:
             item = QAction(title, menu)
             item.triggered.connect(action)
             menu.addAction(item)
@@ -1914,6 +1919,7 @@ class Assistant(QObject):
             return
         self.closing = True
         self.assistant_overlay_timer.stop()
+        self.companion.close()
         self.assistant_features.cleanup()
         self.reminder_timer.stop()
         self.feedback_timer.stop()

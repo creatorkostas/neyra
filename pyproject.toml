@@ -31,6 +31,10 @@ include = ["neyra*"]
 
 [project.optional-dependencies]
 build = ["nuitka>=2.6", "ordered-set>=4.1", "zstandard>=0.23"]
+companion = [
+    "cryptography>=44",
+    "zeroconf>=0.148,<1",
+]
 
 [tool.uv]
 package = true
