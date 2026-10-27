@@ -4,13 +4,11 @@ on:
   pull_request:
     paths-ignore:
       - "**/*.md"
-      - "website/**"
       - ".github/workflows/pages.yml"
   push:
     branches: [main]
     paths-ignore:
       - "**/*.md"
-      - "website/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -38,7 +36,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       - uses: astral-sh/setup-uv@v10.3.2
         with:
           python-version: "3.12"
@@ -53,16 +50,12 @@ jobs:
         run: uv sync --locked --group dev
       - name: Check Python
         run: uv run --locked ruff check neyra scripts tests packaging/aur/check_generator.py
-      - name: Check JavaScript
-        run: |
-          node --check neyra/voz_transcribe.mjs
-          node --check website/site.js
+      - name: Check website JavaScript
+        run: node --check website/site.js
       - name: Check installed Piper runtime
         run: uv run --locked python scripts/check_piper.py
       - name: Check installed Voz runtime
-        run: |
-          npm ci --omit=dev
-          node scripts/check_voz.mjs
+        run: uv run --locked python scripts/check_voz.py
       - name: Run regression tests on Linux
         if: runner.os == 'Linux'
         run: xvfb-run -a uv run --locked python -m unittest discover -s tests -v

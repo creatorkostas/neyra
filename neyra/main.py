@@ -175,7 +175,8 @@ class HistoryDashboard(QDialog):
         self.records = load_records(self.settings, "history")[-500:]
         self.model_states = {"whistle": ("idle", "Whistle loads in the background and recognizes English.", -1),
                              "voz": ("idle", "Voz downloads its model on first use. Select it to start loading.", -1)}
-        self.setStyleSheet(THEME)
+        from .themes import apply_theme
+        apply_theme(self, self.settings.value("theme", "light"))
         root = QVBoxLayout(self)
         root.setContentsMargins(9, 0, 9, 9)
         root.setSpacing(0)
@@ -222,6 +223,7 @@ class HistoryDashboard(QDialog):
         for index, name in ((9, "Home"), (0, "Notes"), (7, "Reminders"), (8, "Assistant")):
             button = QPushButton(name)
             button.setObjectName("nav")
+            button.setProperty("neyra_icon", name.lower())
             button.setIcon(icon(name.lower()))
             button.setIconSize(QSize(20, 20))
             button.setCheckable(True)
@@ -234,7 +236,8 @@ class HistoryDashboard(QDialog):
         for name, callback in (("Analytics", lambda: self.show_page(2)), ("Voice settings", lambda: self.show_page(6)), ("Help", self.show_help)):
             button = QPushButton(name)
             button.setObjectName("nav")
-            button.setIcon(icon({"Analytics": "insights", "Voice settings": "settings", "Help": "help"}[name]))
+            button.setProperty("neyra_icon", {"Analytics": "insights", "Voice settings": "settings", "Help": "help"}[name])
+            button.setIcon(icon(button.property("neyra_icon")))
             button.clicked.connect(callback)
             if name in ("Analytics", "Voice settings"):
                 button.setCheckable(True)
@@ -469,6 +472,7 @@ class HistoryDashboard(QDialog):
         for label in self.findChildren(QLabel):
             if len(label.text()) > 80:
                 label.setWordWrap(True)
+        apply_theme(self, self.settings.value("theme", "light"))
 
     def create_settings_page(self):
         page = QScrollArea()
@@ -495,6 +499,21 @@ class HistoryDashboard(QDialog):
             box.addWidget(note)
             layout.addWidget(frame)
             return box
+
+        from .themes import apply_theme
+        appearance = card("Appearance", "Choose a light or dark workspace. Your choice is saved.")
+        self.theme_button = QPushButton("Use light theme" if self.settings.value("theme", "light") == "dark" else "Use dark theme")
+        def toggle_theme():
+            theme = "light" if self.settings.value("theme", "light") == "dark" else "dark"
+            self.settings.setValue("theme", theme)
+            apply_theme(self, theme)
+            self.theme_button.setText("Use light theme" if theme == "dark" else "Use dark theme")
+        self.theme_button.clicked.connect(toggle_theme)
+        appearance.addWidget(self.theme_button)
+        from .preferences_ui import ProviderPanel
+        provider = card("Assistant provider", "Needle 3 handles local tool requests independently of the assistant.")
+        self.provider_panel = ProviderPanel(self.settings)
+        provider.addWidget(self.provider_panel)
 
         microphone = card("Microphone", "Choose the input used for dictation and meetings. Test it without saving any audio.")
         row = QHBoxLayout()
@@ -537,7 +556,10 @@ class HistoryDashboard(QDialog):
         engine.addWidget(self.model_status_label)
         self.retry_model_button = QPushButton("Load / retry model")
         engine.addWidget(self.retry_model_button, 0, Qt.AlignmentFlag.AlignLeft)
-        engine.addWidget(QLabel("Voz needs Node.js 20+ and downloads about 400 MB once. Its loaded model uses about 1.2 GB of RAM. Both engines use the CPU."))
+        engine.addWidget(QLabel("Voz runs in Python and downloads its model on first use. Both engines use the CPU."))
+        attribution = QLabel('Voz is powered by <a href="https://desertant.com">Desert Ant Labs</a>.')
+        attribution.setOpenExternalLinks(True)
+        engine.addWidget(attribution)
         self.refresh_model_status()
 
         desktop = card("Desktop", "Keep Neyra available in the system tray. Login startup uses your current app location.")
@@ -744,7 +766,7 @@ class HistoryDashboard(QDialog):
             self.capture.detail.setText(self.capture.shortcut_hint)
         self.items.refresh(self.records)
         self.reminders.shortcut_hint.setText('Say "remind me in an hour to take out the garbage", or type it below.')
-        self.assistant_panel.command_hint.setText('Speak naturally with ChatGPT connected. Try "summarize selected text" or "daily briefing".')
+        self.assistant_panel.command_hint.setText('Speak naturally with local Needle 3 tools. Try "summarize selected text" or "daily briefing".')
         self.assistant_panel.selection_hint.setText('Ask the assistant to explain, summarize, or translate selected text. You can also paste below.')
 
     def export_notes_file(self):
@@ -827,7 +849,7 @@ class HistoryDashboard(QDialog):
         dialog = QDialog(self)
         dialog.setWindowTitle("Using Neyra")
         dialog.setWindowIcon(app_icon())
-        dialog.setStyleSheet(THEME)
+        dialog.setStyleSheet(self.styleSheet())
         dialog.resize(560, 620)
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(24, 22, 24, 20)
@@ -969,8 +991,9 @@ class HistoryDashboard(QDialog):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor("#dde0e7"), 1))
-        painter.setBrush(QColor("#f5f6f9"))
+        from .themes import color
+        painter.setPen(QPen(QColor(color("#dde0e7")), 1))
+        painter.setBrush(QColor(color("#f5f6f9")))
         radius = 0 if self.isMaximized() else 10
         painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), radius, radius)
 

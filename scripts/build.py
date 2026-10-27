@@ -23,6 +23,8 @@ def prepare_assets():
     engine.mkdir(parents=True, exist_ok=True)
     if not list(model.rglob("whistle.cact")):
         needle("download", "whistle", "--out", model)
+    if not list(model.rglob("needle3.cact")):
+        needle("download", "needle3", "--out", model)
     if not any(x.is_file() and ("needle" in x.name.lower()) and x.suffix.lower() in (".so", ".dll", ".dylib") for x in engine.rglob("*")):
         needle("fetch", "--out", engine)
     from neyra.bundled import configure_bundled_runtime
@@ -47,9 +49,6 @@ def main():
         configure_bundled_runtime()
     is_win = sys.platform == "win32"
     name = "Neyra.exe" if is_win else "Neyra"
-    node_modules = ROOT / "node_modules"
-    if not node_modules.is_dir():
-        raise RuntimeError("Voz dependencies are missing. Run `npm ci` before building.")
     command = [sys.executable, "-m", "nuitka",
         "--standalone" if args.standalone else "--onefile",
         "--enable-plugin=pyside6",
@@ -61,9 +60,6 @@ def main():
         "--include-package=needle",
         "--include-package=neyra",
         "--include-package-data=soundcard",
-        # macOS names the executable "neyra", so that cannot also be a resource directory.
-        "--include-data-files=neyra/voz_transcribe.mjs=assets/voz/voz_transcribe.mjs",
-        f"--include-raw-dir={node_modules}=node_modules",
         "--output-dir=dist",
         "--assume-yes-for-downloads",
     ]

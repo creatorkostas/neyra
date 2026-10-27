@@ -1,13 +1,8 @@
 """Whistle streaming and optional Voz inference workers."""
-import json
 import queue
-import shutil
-import subprocess
 import tempfile
 import threading
 import wave
-import time
-from collections import deque
 from pathlib import Path
 import numpy as np
 from PySide6.QtCore import QObject, Signal
@@ -28,14 +23,12 @@ class Transcriber(QObject):
         self.thread = None
         self._worker_done = threading.Event()
         self._worker_done.set()
-        self._voz_process = None
-        self._voz_lock = threading.Lock()
+        self._voz_engine = None
         self._voz_start_lock = threading.Lock()
         self._voz_prepare_thread = None
         self._closed = False
         self._voz_ready = False
-        self._voz_events = queue.Queue()
-        self._voz_diagnostics = deque(maxlen=30)
+        self._voz_closed = threading.Event()
         self._whistle_ready = threading.Event()
         self._whistle_start_lock = threading.Lock()
         self._whistle_thread = None
@@ -77,7 +70,7 @@ class Transcriber(QObject):
     def prepare_voz(self):
         if self._closed:
             return
-        if self._voz_ready and self._voz_process and self._voz_process.poll() is None:
+        if self._voz_ready and self._voz_engine is not None:
             self.model_status.emit("voz", "ready", "Voz is ready. The loaded model stays in memory for your next recording.", 100)
             return
         if self._voz_prepare_thread and self._voz_prepare_thread.is_alive():
@@ -208,20 +201,15 @@ class Transcriber(QObject):
                     if not clean_path.is_file():
                         raise RuntimeError("Clear did not produce a cleaned recording.")
                     source_path = clean_path
-            process = self._start_voz()
-            with self._voz_lock:
-                if self._closed or process.poll() is not None:
-                    raise RuntimeError("Voz stopped before transcription started.")
-                process.stdin.write(json.dumps({"path": str(source_path)}) + "\n")
-                process.stdin.flush()
-            self.model_status.emit("voz", "transcribing", "Transcribing your recording with Voz...", 0)
-            while True:
-                event = self._read_voz_event(process)
-                if event["event"] == "transcribing":
-                    percent = round(float(event.get("fraction", 0)) * 100)
-                    self.model_status.emit("voz", "transcribing", f"Transcribing with Voz · {percent}%", max(0, min(100, percent)))
-                    self.partial.emit(f"Transcribing with Voz... {percent}%")
-                elif event["event"] == "result":
+            engine = self._start_voz()
+            self.model_status.emit("voz", "transcribing", "Transcribing with Python Voz...", 0)
+            def progress(fraction):
+                percent = round(fraction * 100)
+                self.model_status.emit("voz", "transcribing", f"Transcribing with Voz · {percent}%", percent)
+                self.partial.emit(f"Transcribing with Voz... {percent}%")
+            result = engine.transcribe(source_path, progress)
+            for event in [dict(result, event="result")]:
+                if event["event"] == "result":
                     text = str(event.get("text", "")).strip()
                     if meeting_options is not None and text:
                         words = validated_words(event.get("words"), duration)
@@ -258,120 +246,28 @@ class Transcriber(QObject):
             audio_directory.cleanup()
 
     def _start_voz(self):
-        # Preloading and a recording can ask for the same subprocess at once.
         with self._voz_start_lock:
-            try:
-                return self._load_voz()
-            except Exception:
-                self._discard_voz()
-                raise
-
-    def _load_voz(self):
-        with self._voz_lock:
             if self._closed:
                 raise RuntimeError("Neyra is shutting down.")
-            if self._voz_ready and self._voz_process and self._voz_process.poll() is None:
-                return self._voz_process
-
-            node = shutil.which("node")
-            if not node:
-                raise RuntimeError("Voz needs Node.js 20 or newer. Install Node.js, then retry loading the model.")
-            project_root = Path(__file__).resolve().parent.parent
-            script_dir = project_root / "assets" / "voz" if "__compiled__" in globals() else Path(__file__).resolve().parent
-            script = script_dir / "voz_transcribe.mjs"
-            if not script.is_file():
-                raise RuntimeError(f"Voz runner not found: {script}")
-            process = subprocess.Popen(
-                [node, str(script)], cwd=project_root,
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, encoding="utf-8", errors="replace", bufsize=1,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            self._voz_process = process
-            self._voz_ready = False
-            events = self._voz_events = queue.Queue()
-            diagnostics = self._voz_diagnostics = deque(maxlen=30)
-
-        def read_events():
-            try:
-                for line in process.stdout:
-                    try:
-                        event = json.loads(line)
-                    except ValueError:
-                        diagnostics.append(line.strip())
-                        continue
-                    if isinstance(event, dict) and "event" in event:
-                        events.put(event)
-            finally:
-                events.put({"event": "exited"})
-                process.stdout.close()
-
-        def read_errors():
-            try:
-                for line in process.stderr:
-                    diagnostics.append(line.strip())
-            finally:
-                process.stderr.close()
-
-        # ONNX diagnostics must be drained while stdout carries the protocol.
-        threading.Thread(target=read_events, name="voz-output", daemon=True).start()
-        threading.Thread(target=read_errors, name="voz-errors", daemon=True).start()
-
-        self.model_status.emit("voz", "loading", "Starting Voz and loading its local model...", -1)
-        self.partial.emit("Starting Voz and loading its local model...")
-        deadline = time.monotonic() + 900
-        while True:
-            if time.monotonic() > deadline:
-                raise RuntimeError("Voz model setup timed out. Check your connection and retry.")
-            event = self._read_voz_event(process)
-            if event["event"] == "loading":
-                self.model_status.emit("voz", "loading", "Loading Voz assets and preparing its local model...", -1)
-                self.partial.emit("Loading Voz assets and preparing its local model...")
-            elif event["event"] == "download":
-                loaded = float(event.get("loaded", 0)) / 1048576
-                total = float(event.get("total", 0)) / 1048576
-                progress = f"{loaded:.1f} / {total:.1f} MB" if total else f"{loaded:.1f} MB"
-                filename = str(event.get("file", "model"))
-                self.model_status.emit("voz", "downloading", f"Downloading {filename} · {progress}",
-                                       min(100, max(0, round(loaded / total * 100))) if total > 0 else -1)
-                self.partial.emit(f"Downloading Voz: {progress}")
-            elif event["event"] == "ready":
-                self._voz_ready = True
-                self.model_status.emit("voz", "ready", "Voz is ready. The loaded model stays in memory for your next recording.", 100)
-                return process
-            elif event["event"] in ("error", "fatal"):
-                raise RuntimeError(f"Voz failed to load: {event.get('message', 'Unknown model error')}")
-
-    def _read_voz_event(self, process):
-        deadline = time.monotonic() + 180
-        while not self._closed:
-            try:
-                event = self._voz_events.get(timeout=0.25)
-                if event["event"] == "exited":
-                    detail = "\n".join(self._voz_diagnostics)
-                    raise RuntimeError(detail or f"Voz runtime stopped (exit code {process.poll()}).")
-                return event
-            except queue.Empty:
-                if time.monotonic() > deadline:
-                    raise RuntimeError("Voz stopped responding. Please retry the transcription.")
-        raise RuntimeError("Neyra is shutting down.")
+            if self._voz_engine is None:
+                from .voz import VozEngine
+                engine = VozEngine(lambda state, detail, progress: self.model_status.emit("voz", state, detail, progress), self._voz_closed)
+                if self._closed:
+                    engine.close()
+                    raise RuntimeError("Neyra is shutting down.")
+                self._voz_engine = engine
+            self._voz_ready = True
+            self.model_status.emit("voz", "ready", "Voz is ready in Python. Sessions stay loaded for your next recording.", 100)
+            return self._voz_engine
 
     def _discard_voz(self):
-        with self._voz_lock:
-            process = self._voz_process
-            self._voz_process = None
-            self._voz_ready = False
-        if process:
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=2)
-            if process.stdin and not process.stdin.closed:
-                process.stdin.close()
+        self._voz_ready = False
+        engine, self._voz_engine = self._voz_engine, None
+        if engine:
+            engine.usage.close()
 
     def close(self):
         self._closed = True
+        self._voz_closed.set()
         self.meeting_models.close()
         self._discard_voz()

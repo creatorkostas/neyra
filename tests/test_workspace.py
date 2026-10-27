@@ -21,6 +21,20 @@ class WorkspaceTests(unittest.TestCase):
             self.window = HistoryDashboard()
         self.addCleanup(self.window.close)
 
+    def test_theme_toggle_persists_and_restores(self):
+        from neyra.themes import current_theme
+        self.window.theme_button.click()
+        self.assertEqual(current_theme(), "dark")
+        self.assertEqual(self.window.settings.value("theme"), "dark")
+        self.assertIn("#151922", self.window.styleSheet())
+        with patch("neyra.main.input_devices", return_value=[]), patch("neyra.startup.is_enabled", return_value=False):
+            reopened = HistoryDashboard()
+        self.addCleanup(reopened.close)
+        self.assertEqual(current_theme(), "dark")
+        self.assertEqual(reopened.theme_button.text(), "Use light theme")
+        reopened.theme_button.click()
+        self.assertEqual(current_theme(), "light")
+
     def test_home_is_default_and_notes_share_one_navigation_group(self):
         self.assertEqual(self.window.pages.currentIndex(), 9)
         self.assertTrue(self.window.home.isAncestorOf(self.window.capture))

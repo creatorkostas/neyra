@@ -2,12 +2,12 @@
 
 ## Set up development
 
-Install Git, uv, and Node.js 20 or newer. Use Python 3.12, as specified in
-`.python-version`.
+Install Git and uv. Use Python 3.12, as specified in
+`.python-version`. Install Node.js 20 or newer only for the website JavaScript
+check; Neyra does not use Node at runtime or when building the desktop app.
 
 ```sh
 uv sync --locked --group dev
-npm ci --omit=dev
 uv run python -m neyra.main
 ```
 
@@ -25,10 +25,9 @@ Run the same checks used for pull requests:
 
 ```sh
 uv run --locked ruff check neyra scripts tests packaging/aur/check_generator.py
-node --check neyra/voz_transcribe.mjs
-node --check website/site.js
-node scripts/check_voz.mjs
+uv run --locked python scripts/check_voz.py
 uv run --locked python scripts/check_piper.py
+node --check website/site.js
 uv run --locked python -m unittest discover -s tests -v
 uv run --locked python packaging/aur/check_generator.py
 ```
@@ -48,9 +47,8 @@ for `main` after the workflow has run.
 ## Update dependencies
 
 Use `uv add` or `uv lock --upgrade-package PACKAGE` for Python dependencies.
-Commit `pyproject.toml` and `uv.lock` together when both change. Use npm to
-update `package.json` and `package-lock.json` together. CI uses locked installs.
-Dependabot proposes weekly updates for Python, npm, and GitHub Actions;
+Commit `pyproject.toml` and `uv.lock` together when both change. CI uses locked installs.
+Dependabot proposes weekly updates for Python and GitHub Actions;
 maintainers review and merge them after checks pass.
 
 ## Prepare a pull request

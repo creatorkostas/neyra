@@ -15,3 +15,11 @@ its model card describes the voice's attribution and licensing. Additional
 selectable voices are [British English Alan](https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_GB/alan/medium)
 and [Greek Rapunzelina](https://huggingface.co/rhasspy/piper-voices/tree/main/el/el_GR/rapunzelina/low).
 Their model cards describe their separate voice licensing and attribution.
+
+## Python Voz adaptation
+
+`neyra/voz.py` adapts Desert Ant Labs source and remains subject to its
+Source-Available License, not MIT. Copyright © 2026 Desert Ant
+Labs B.V. See `packaging/licenses/DesertAnt-LICENSE.md` and
+[the runtime notes](docs/providers-and-python-voz.md). Voz is powered by
+[Desert Ant Labs](https://desertant.com).

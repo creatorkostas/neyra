@@ -32,15 +32,9 @@ uv run python -m neyra.main
 
 This uses the Python 3.12 version specified in `.python-version`.
 
-To enable the optional Voz engine, install Node.js 20 or newer, then install its runtime packages from the project folder:
+In **Voice settings**, choose **Whistle** for live text or **Voz** for a final transcript after recording stops. Selecting an engine loads its model in the background. Voz downloads about 1.2 GB on first use and caches the files locally. Its loaded model uses about 1.2 GB of RAM and at most four inference threads. Neyra keeps loaded models in memory until you quit.
 
-```bash
-npm install
-```
-
-In **Voice settings**, choose **Whistle** for live text or **Voz** for a final transcript after recording stops. Selecting an engine loads its model in the background. Voz downloads about 400 MB on first use and caches the files locally. Its loaded model uses about 1.2 GB of RAM and at most four inference threads. Neyra keeps loaded models in memory until you quit.
-
-The Home capture bar shows loading, downloading, ready, transcribing, and error states. Voz download progress shows the current file's bytes and percentage when its size is available. To retry a failed load, use **Voice settings → Load / retry model**. Recorded audio is not sent to a server. Packaged builds include the Voz npm dependencies, including the platform's ONNX runtime. Install Node.js 20 or newer separately to use Voz.
+The Home capture bar shows model loading and transcription status. Voz uses Python and ONNX Runtime, runs the encoder on the GPU through WebGPU (or CoreML on macOS), and needs no Node.js installation. Model weights download on first use. See [providers and Python Voz](docs/providers-and-python-voz.md) for setup, measured results, and current validation limits.
 
 ## Set up dictation
 
@@ -182,11 +176,10 @@ On native Wayland, use **Speak command** in Assistant and copy text manually int
 
 ```bash
 uv sync --extra build
-npm ci --omit=dev
 uv run python scripts/build.py --onefile
 ```
 
-The build script runs `needle download whistle --out assets/model` and `needle fetch --out assets/engine`, verifies the model and native engine library, and includes both in Nuitka's onefile distribution. It also includes the installed Voz `node_modules` directory. Run `npm ci` on the target build platform so the ONNX native binaries match Windows, Linux, or macOS. The build fails if the npm dependency directory is missing.
+The build script bundles the Whistle and Needle 3 weights plus their native engine. Python ONNX Runtime replaces the former Voz Node packages. Voz model weights remain a first-use download.
 
 At startup, Neyra sets `NEEDLE_WHISTLE_WEIGHTS`, `NEEDLE3_LIB_PATH`, and `HF_HUB_OFFLINE=1` for the bundled Whistle assets. Whistle should not download weights in a packaged build. Voz and the optional meeting models still download their own assets on first use.
 
@@ -232,7 +225,7 @@ Global shortcuts work through `pynput` on Windows and X11. They are **not** gene
 
 ## Set up meeting models
 
-Install the Node packages for Voz with `npm install`. Build the native meeting helper with the setup script:
+Build the native meeting helper with the setup script:
 
 ```powershell
 uv run python scripts/setup_meeting_models.py
@@ -255,7 +248,7 @@ Model weights download on first use and are cached by the SDK. The native SDK al
 
 A failed processing attempt keeps the mixed recording in memory for **Retry processing**. You can disable an optional model before retrying, or choose **Discard recording**. Closing Neyra discards that unsaved recording. Successful processing removes temporary audio files; existing saved notes cannot be reprocessed without their audio.
 
-The build script includes `assets/meeting-models` when present and excludes development toolchain installers. It bundles the installed Voz npm packages; Node.js remains a separate runtime requirement. Verify the native helper and packaged application on the target machine before distributing.
+The build script includes `assets/meeting-models` when present and excludes development toolchain installers. Voz now uses Python ONNX Runtime and needs no Node.js installation. Verify the native helper and packaged application on the target machine before distributing.
 
 ## Text insertion
 
@@ -303,7 +296,8 @@ Assistant checks cover command restrictions, clipboard preservation, reviewed so
 
 ## Troubleshooting
 
-- **Model errors:** test `needle whistle playground` for Whistle. For Voz, check Node.js 20+, run `npm install` in the project folder, and allow internet access for its first model download.
+- **Model errors:** test `needle whistle playground` for Whistle. For Voz, run `uv sync --locked` and allow internet access for its first model download, or configure `NEYRA_VOZ_MODEL_DIR`.
+- **Voz runs on the CPU:** check the loading message for the provider. `NEYRA_VOZ_DEVICE=gpu` forces acceleration; see [execution providers](docs/providers-and-python-voz.md) for driver requirements and `scripts/benchmark_voz.py`.
 - **No mic:** check OS microphone permissions, default input device, and PortAudio availability.
 - **No shortcuts on Wayland:** expected. Use tray and configure compositor bindings if needed.
 - **Text didn't paste:** use tray → Copy last transcript; verify focus and clipboard tools.
@@ -323,3 +317,10 @@ Assistant checks cover command restrictions, clipboard preservation, reviewed so
 - Speech engines: Cactus Whistle (English, default); Desert Ant Voz (optional, 25 languages)
 
 The project is a renamed prototype, not a validated distributable release. Test native engine availability, keyboard integration and Nuitka packaging on your target machine before distributing.
+
+## Providers, themes, and local tools
+
+Voice settings now includes an Appearance button and assistant provider controls.
+Choose ChatGPT, a local compatible model server, OpenCode API, OpenCode CLI, or
+no assistant. Natural-language tool routing uses local Needle 3 independently.
+See [setup and runtime details](docs/providers-and-python-voz.md).
