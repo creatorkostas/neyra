@@ -4,14 +4,14 @@ from unittest.mock import patch
 from neyra.voz import CPU_PROVIDER, select_provider, session_providers
 
 OPENVINO = ['OpenVINOExecutionProvider', CPU_PROVIDER]
-WINDOWS = ['DmlExecutionProvider', CPU_PROVIDER]
+WINDOWS = ['WebGpuExecutionProvider', CPU_PROVIDER]
 MACOS = ['CoreMLExecutionProvider', CPU_PROVIDER]
 
 
 class ProviderSelectionTests(unittest.TestCase):
     def test_auto_picks_the_platform_provider(self):
         self.assertEqual(select_provider(OPENVINO, platform='linux', requested='', device='auto'), 'OpenVINOExecutionProvider')
-        self.assertEqual(select_provider(WINDOWS, platform='win32', requested='', device='auto'), 'DmlExecutionProvider')
+        self.assertEqual(select_provider(WINDOWS, platform='win32', requested='', device='auto'), 'WebGpuExecutionProvider')
         self.assertEqual(select_provider(MACOS, platform='darwin', requested='', device='auto'), 'CoreMLExecutionProvider')
         webgpu = ['WebGpuExecutionProvider', CPU_PROVIDER]
         self.assertEqual(select_provider(webgpu, platform='linux', requested='', device='auto'), 'WebGpuExecutionProvider')
@@ -48,12 +48,16 @@ class ProviderSelectionTests(unittest.TestCase):
     def test_environment_selects_the_provider(self):
         with patch.dict('os.environ', {'NEYRA_VOZ_DEVICE': 'cpu'}, clear=False):
             self.assertIsNone(select_provider(OPENVINO, platform='linux'))
-        with patch.dict('os.environ', {'NEYRA_VOZ_ONNX_PROVIDER': 'DmlExecutionProvider'}, clear=False):
-            self.assertEqual(select_provider(WINDOWS, platform='win32'), 'DmlExecutionProvider')
+        with patch.dict('os.environ', {'NEYRA_VOZ_ONNX_PROVIDER': 'WebGpuExecutionProvider'}, clear=False):
+            self.assertEqual(select_provider(WINDOWS, platform='win32'), 'WebGpuExecutionProvider')
+
+    def test_directml_build_still_works_for_benchmarks(self):
+        available = ['DmlExecutionProvider', CPU_PROVIDER]
+        self.assertEqual(select_provider(available, platform='win32', requested='', device='auto'), 'DmlExecutionProvider')
 
     def test_encoder_uses_the_gpu_with_a_cpu_fallback(self):
-        providers = session_providers('DmlExecutionProvider', 'encoder')
-        self.assertEqual(providers[0][0], 'DmlExecutionProvider')
+        providers = session_providers('WebGpuExecutionProvider', 'encoder')
+        self.assertEqual(providers[0][0], 'WebGpuExecutionProvider')
         self.assertEqual(providers[1], CPU_PROVIDER)
 
     def test_decoder_stays_on_cpu(self):

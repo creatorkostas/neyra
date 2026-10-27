@@ -1,12 +1,12 @@
 # Windows helper for the Voz execution-provider benchmark.
 # Installs the locked dependencies, reports the GPU, and compares CPU against
-# DirectML (and optionally WebGPU) on the same audio file.
+# WebGPU (and optionally DirectML or OpenVINO) on the same audio file.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\benchmark_voz_windows.ps1
-#   powershell -ExecutionPolicy Bypass -File scripts\benchmark_voz_windows.ps1 -Variants cpu,directml,webgpu
+#   powershell -ExecutionPolicy Bypass -File scripts\benchmark_voz_windows.ps1 -Variants cpu,webgpu,directml
 [CmdletBinding()]
 param(
-    [string]$Variants = "cpu,directml",
+    [string]$Variants = "cpu,webgpu",
     [int]$Runs = 3,
     [string]$Audio,
     [string]$ModelDir,

@@ -28,7 +28,7 @@ PROVIDER_OPTIONS = {
 }
 PLATFORM_PROVIDERS = {
     'darwin': ('CoreMLExecutionProvider', 'WebGpuExecutionProvider'),
-    'win32': ('DmlExecutionProvider', 'WebGpuExecutionProvider'),
+    'win32': ('WebGpuExecutionProvider', 'DmlExecutionProvider'),
     'linux': ('WebGpuExecutionProvider', 'OpenVINOExecutionProvider'),
 }
 PROVIDER_LABELS = {

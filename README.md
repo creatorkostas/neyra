@@ -34,7 +34,7 @@ This uses the Python 3.12 version specified in `.python-version`.
 
 In **Voice settings**, choose **Whistle** for live text or **Voz** for a final transcript after recording stops. Selecting an engine loads its model in the background. Voz downloads about 1.2 GB on first use and caches the files locally. Its loaded model uses about 1.2 GB of RAM and at most four inference threads. Neyra keeps loaded models in memory until you quit.
 
-The Home capture bar shows model loading and transcription status. Voz uses Python and ONNX Runtime, runs the encoder on the GPU when the platform build offers one (WebGPU, DirectML, or CoreML), and needs no Node.js installation. Model weights download on first use. See [providers and Python Voz](docs/providers-and-python-voz.md) for setup, measured results, and current validation limits.
+The Home capture bar shows model loading and transcription status. Voz uses Python and ONNX Runtime, runs the encoder on the GPU through WebGPU (or CoreML on macOS), and needs no Node.js installation. Model weights download on first use. See [providers and Python Voz](docs/providers-and-python-voz.md) for setup, measured results, and current validation limits.
 
 ## Set up dictation
 

@@ -80,7 +80,7 @@ normal install needs no configuration:
 | Platform | Wheel | Accelerated provider |
 | --- | --- | --- |
 | Linux x86_64 | `onnxruntime-webgpu` | WebGPU (Vulkan driver) |
-| Windows x86_64 | `onnxruntime-directml` | DirectML (any DirectX 12 GPU) |
+| Windows x86_64 | `onnxruntime-webgpu` | WebGPU (Dawn over DirectX 12) |
 | macOS | `onnxruntime` | CoreML |
 | Other | `onnxruntime` | CPU only |
 
@@ -99,13 +99,17 @@ Measured on a 9.76 s clip on an i5-1135G7 with Iris Xe, three runs, warm caches:
 | OpenVINO, `device=gpu` | 1.0 s | 1.19 s | 0.12 |
 | WebGPU (default) | 0.9 s | 0.91 s | 0.09 |
 
-WebGPU needs only a Vulkan driver and was the fastest and most reliable option on
-this machine, so it is the default Linux build. OpenVINO remains available by
-swapping the Linux marker in `pyproject.toml` to `onnxruntime-openvino`; the two
-wheels provide the same module and cannot be installed together. OpenVINO also
-needs `intel-compute-runtime` and `level-zero-loader`, its `auto` device can stay
-on the CPU plugin, and forcing `device=gpu` crashes when Mesa Rusticl is also
-registered as an OpenCL ICD (restrict `OCL_ICD_VENDORS` to the Intel ICD).
+WebGPU needs only a Vulkan driver on Linux, or DirectX 12 on Windows, and was the
+fastest and most reliable option measured, so it is the only GPU wheel shipped.
+On an AMD Windows PC, DirectML and WebGPU transcribed within noise of each other,
+which is why DirectML is no longer installed and WebGPU covers both platforms.
+OpenVINO remains available on Linux by swapping the marker in `pyproject.toml` to
+`onnxruntime-openvino`; the wheels provide the same module and cannot be installed
+together. OpenVINO also needs `intel-compute-runtime` and `level-zero-loader`, its
+`auto` device can stay on the CPU plugin, and forcing `device=gpu` crashes when
+Mesa Rusticl is also registered as an OpenCL ICD (restrict `OCL_ICD_VENDORS` to the
+Intel ICD). The DirectML wheel stays reachable for comparisons through the
+benchmark script.
 
 Compare providers on one machine with:
 
@@ -119,8 +123,8 @@ uv run python scripts/benchmark_voz.py --variants cpu,webgpu \
 mono 16 kHz WAV Voz accepts. The benchmark script creates isolated environments
 with `uv`, so the variants cannot overwrite each other. On Windows,
 `scripts/benchmark_voz_windows.ps1` installs the locked dependencies, reports the
-display adapter, and compares CPU with DirectML (add `-Variants cpu,directml,webgpu`
-to include WebGPU). Packaged builds still need target-device verification.
+display adapter, and compares CPU with WebGPU (add `-Variants cpu,webgpu,directml`
+to include DirectML). Packaged builds still need target-device verification.
 
 The native port is not yet proven equivalent on long or multilingual recordings.
 Upstream's advanced recovery for partially truncated windows and keyword boosting
