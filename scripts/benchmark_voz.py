@@ -82,7 +82,10 @@ def run_variant(name, audio, runs, models, workdir, keep):
     environment_variables = {**os.environ, 'PYTHONPATH': str(ROOT), 'NEYRA_VOZ_MODEL_DIR': str(models)}
     environment_variables['NEYRA_VOZ_DEVICE'] = device
     environment_variables['NEYRA_VOZ_CACHE_DIR'] = str(workdir / 'openvino-cache')
-    output = subprocess.run(command, env=environment_variables, capture_output=True, text=True)
+    # The worker prints UTF-8; the Windows locale code page would fail to decode it.
+    environment_variables['PYTHONIOENCODING'] = 'utf-8'
+    output = subprocess.run(command, env=environment_variables, capture_output=True, text=True,
+                            encoding='utf-8', errors='replace')
     if output.returncode != 0:
         return {'provider': name, 'failed': (output.stderr.strip().splitlines() or ['exit ' + str(output.returncode)])[-1]}
     result = next(json.loads(line[len('BENCH '):]) for line in output.stdout.splitlines() if line.startswith('BENCH '))

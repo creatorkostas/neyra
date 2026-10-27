@@ -210,13 +210,13 @@ class VozEngine:
         import onnxruntime as ort
         self.closed = closed or threading.Event()
         self.directory = root = model_directory(status)
-        self.config = c = json.loads((root / 'meta.json').read_text())
+        self.config = c = json.loads((root / 'meta.json').read_text(encoding='utf-8'))
         required = ('sample_rate', 'hop_length', 'n_samples', 'n_rows', 'n_fft', 'n_padded_samples', 'valid_frames', 'enc_frames', 'joint_hidden', 'pred_hidden', 'pred_layers', 'vocab_size', 'decode_width')
         if any(type(c.get(k)) is not int or not 0 < c[k] < 10_000_000 for k in required):
             raise ValueError('Invalid Voz model geometry.')
         if c['sample_rate'] != 16000 or not 0 <= c['blank_idx'] <= c['vocab_size'] or not c['durations']:
             raise ValueError('Unsupported Voz model metadata.')
-        self.vocabulary = json.loads((root / 'vocab.json').read_text())
+        self.vocabulary = json.loads((root / 'vocab.json').read_text(encoding='utf-8'))
         if len(self.vocabulary) < c['vocab_size']:
             raise ValueError('Voz vocabulary is too small.')
         self.embedding = np.fromfile(root / 'embedding.f16', dtype='<f2').astype(np.float32).reshape(c['vocab_size'] + 1, c['pred_hidden'])
