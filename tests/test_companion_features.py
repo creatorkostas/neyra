@@ -114,6 +114,10 @@ class JobTests(unittest.TestCase):
         self.owner.history.engine_choice.currentData.return_value = 'whistle'
         self.client = SimpleNamespace(active_id='synthetic-account', respond=Mock(return_value='Synthetic answer'))
         self.owner.assistant_features = SimpleNamespace(get_assistant_provider=lambda: self.client)
+        self.owner.engine = FakeTranscriber()
+        from neyra.main import Assistant
+        self.owner.engine.finished.connect(lambda text: Assistant.complete(self.owner, text))
+        self.owner.engine.failed.connect(lambda message: Assistant.error(self.owner, message))
         self.jobs = CompanionJobs(self.owner)
         self.addCleanup(self.jobs.close)
 
@@ -125,12 +129,24 @@ class JobTests(unittest.TestCase):
         return self.jobs.status({'jobId': identifier, '_peer': 'phone'})
 
     def test_audio_is_transcribed_without_desktop_capture_or_paste(self):
-        with patch('neyra.companion_jobs.Transcriber', FakeTranscriber):
-            result = self.jobs.create('transcribe', {'_peer': 'phone', 'pcm': base64.b64encode(b'\0' * 3200).decode()})
+        result = self.jobs.create('transcribe', {'_peer': 'phone', 'pcm': base64.b64encode(b'\0' * 3200).decode()})
         self.assertEqual(self.wait_done(result['jobId'])['text'], 'synthetic phone transcript')
         self.assertFalse(self.owner.processing)
         with self.assertRaises(ValueError):
             self.jobs.status({'jobId': result['jobId'], '_peer': 'other-phone'})
+
+    def test_cancelled_phone_audio_keeps_its_route_until_late_engine_completion(self):
+        self.owner.engine.run = Mock()  # Native work is still in flight.
+        result = self.jobs.create('transcribe', {'_peer': 'phone', 'pcm': base64.b64encode(b'\0' * 3200).decode()})
+        self.jobs.status({'_peer': 'phone', 'jobId': result['jobId'], 'action': 'cancel'})
+        self.jobs.close()
+        from neyra.main import Assistant
+        Assistant.complete(self.owner, 'must never paste')
+        status = self.jobs.status({'_peer': 'phone', 'jobId': result['jobId']})
+        self.assertEqual(status['status'], 'cancelled')
+        self.assertEqual(status['text'], '')
+        self.assertIsNone(self.owner._companion_audio_owner)
+        self.assertFalse(self.owner.processing)
 
     def test_chat_followup_is_phone_and_account_scoped_and_forget_clears_it(self):
         first = self.jobs.create('chat', {'_peer': 'phone', 'text': 'first question'})

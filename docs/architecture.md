@@ -104,7 +104,12 @@ Remote commands use a local allowlist and cannot request screen/clipboard contex
 See [Android companion](android-companion.md) for setup and current limits.
 
 Companion audio and conversation requests use cancellable, bounded asynchronous
-jobs. Remote inference guards desktop recording state; provider replies remain
+jobs. Remote inference reuses the desktop-owned engine and guards recording state; provider replies remain
 text and cannot dispatch tools. Notes use stable hashed request metadata and a
 bounded receipt journal for reconnect retries. ReminderStore owns fixed-interval
 recurrence and series cancellation; phone notifications never create successors.
+
+Shared STT results route explicitly to the phone job until the worker finishes,
+including after cancellation/revocation. They never enter desktop paste/history
+completion handlers. The desktop alone closes the engine, avoiding duplicate
+loaded models and preserving native runtime ownership.

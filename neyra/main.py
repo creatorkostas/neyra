@@ -1694,6 +1694,10 @@ class Assistant(QObject):
 
     @Slot(str)
     def preview(self, text):
+        remote = getattr(self, '_companion_audio_owner', None)
+        if remote is not None:
+            remote.audio_partial(text)
+            return
         if self.closing or self._discard_assistant_transcript:
             return
         self.history.status_label.setText("Listening..." if self.recording else "Processing meeting..." if self.active_mode == "notetaker" else "Transcribing..." if self.processing else "Preparing model...")
@@ -1707,6 +1711,10 @@ class Assistant(QObject):
 
     @Slot(str)
     def complete(self, text):
+        remote = getattr(self, '_companion_audio_owner', None)
+        if remote is not None:
+            remote.audio_finished(text)
+            return
         if self.closing:
             return
         self.processing = False
@@ -1875,6 +1883,10 @@ class Assistant(QObject):
 
     @Slot(str)
     def error(self, message):
+        remote = getattr(self, '_companion_audio_owner', None)
+        if remote is not None:
+            remote.audio_failed(message)
+            return
         if self.closing:
             return
         self.speaker_mute.end()

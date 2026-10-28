@@ -9,7 +9,6 @@ import uuid
 import numpy as np
 from PySide6.QtCore import QObject, Signal
 from .conversation import ConversationMemory
-from .stt import Transcriber
 
 
 class CompanionJobs(QObject):
@@ -22,7 +21,6 @@ class CompanionJobs(QObject):
         self.memories = {}
         self.lock = threading.RLock()
         self.audio_job = None
-        self.transcriber = None
         self.completed.connect(self.finish)
 
     def create(self, kind, body):
@@ -54,20 +52,17 @@ class CompanionJobs(QObject):
                 raise ValueError('Record between 0.1 and 60 seconds of 16 kHz mono PCM16 audio.')
             with self.lock:
                 self.jobs[identifier] = job
-            if self.transcriber is None:
-                self.transcriber = Transcriber()
-                self.transcriber.finished.connect(self.audio_finished)
-                self.transcriber.failed.connect(self.audio_failed)
             chunks = queue.Queue()
             samples = np.frombuffer(audio, dtype='<i2').astype(np.float32) / 32768
             for start in range(0, len(samples), 4000):
                 chunks.put(samples[start:start + 4000])
             chunks.put(None)
             self.audio_job = identifier
+            self.owner._companion_audio_owner = self
             self.owner.processing = True
             self.owner.update_controls('Transcribing phone recording…')
             try:
-                self.transcriber.run(chunks, model=self.owner.history.engine_choice.currentData())
+                self.owner.engine.run(chunks, model=self.owner.history.engine_choice.currentData())
             except Exception:
                 self.audio_failed('Could not start the desktop speech engine.')
                 raise
@@ -110,6 +105,12 @@ class CompanionJobs(QObject):
             raise ValueError('Unknown job kind.')
         return {'jobId': identifier}
 
+    def audio_partial(self, text):
+        with self.lock:
+            job = self.jobs.get(self.audio_job)
+            if job and not job['cancel'].is_set():
+                job['text'] = text[:16000]
+
     def audio_finished(self, text):
         self._audio_result(text, '')
 
@@ -119,6 +120,8 @@ class CompanionJobs(QObject):
     def _audio_result(self, text, error):
         identifier, self.audio_job = self.audio_job, None
         if identifier:
+            if getattr(self.owner, "_companion_audio_owner", None) is self:
+                self.owner._companion_audio_owner = None
             self.owner.processing = False
             if not self.owner.closing:
                 self.owner.update_controls()
@@ -157,5 +160,5 @@ class CompanionJobs(QObject):
             for job in self.jobs.values():
                 job['cancel'].set()
             self.memories.clear()
-        if self.transcriber:
-            threading.Thread(target=self.transcriber.close, daemon=True).start()
+        # The desktop owns the shared engine. Keep the audio route until its
+        # worker finishes so even revoked/cancelled results can never paste.
