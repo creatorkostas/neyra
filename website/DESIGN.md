@@ -13,6 +13,10 @@ white surfaces, cool blue actions, and compact navigation.
 - Website type: self-hosted Manrope. Body text is 16px with 1.65 line height.
   The display title caps at 74px and wraps naturally.
 
+The browser tab icon reverses the waveform to white on a solid `#365bd6` tile
+with 7px rounded corners, so it stays legible at 16px on light and dark tab
+bars. The in-page brand mark keeps the thin blue stroke on the page background.
+
 ## Structure and behavior
 
 The website leads with the purpose, downloads, and an illustrative note preview.
