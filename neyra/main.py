@@ -156,6 +156,7 @@ class HistoryDashboard(QDialog):
     notetaker_start = Signal()
     notetaker_stop = Signal()
     closed = Signal()
+    companion_requested = Signal()
     history_cleared = Signal()
     transcript_deleted = Signal(object)
     restore_data_requested = Signal(object)
@@ -501,6 +502,10 @@ class HistoryDashboard(QDialog):
             layout.addWidget(frame)
             return box
 
+        companion = card("Android companion", "Pair your phone to capture notes, talk to Neyra, and keep reminders with you on your local network.")
+        companion_button = QPushButton("Open Android companion")
+        companion_button.clicked.connect(self.companion_requested.emit)
+        companion.addWidget(companion_button)
         from .themes import apply_theme
         appearance = card("Appearance", "Choose a light or dark workspace. Your choice is saved.")
         self.theme_button = QPushButton("Use light theme" if self.settings.value("theme", "light") == "dark" else "Use dark theme")
@@ -951,13 +956,26 @@ class HistoryDashboard(QDialog):
         self.refresh_notes_state()
         self.history_cleared.emit()
 
-    def add_transcript(self, text, duration=0):
+    def add_transcript(self, text, duration=0, remote_key=None):
         if not self.save_history_toggle.isChecked():
             return
+        if remote_key:
+            existing = next((item for item in self.records if item.get('companion_request') == remote_key), None)
+            if existing:
+                self.settings.sync()
+                if self.settings.status() != QSettings.Status.NoError:
+                    raise OSError("Could not persist the remote note.")
+                return existing
         record = {"text": text, "time": datetime.now().isoformat(timespec="seconds"), "duration": max(0, duration)}
+        if remote_key:
+            record['companion_request'] = remote_key
         self.records.append(record)
         self.records = self.records[-500:]
         self.settings.setValue("history", json.dumps(self.records))
+        if remote_key:
+            self.settings.sync()
+            if self.settings.status() != QSettings.Status.NoError:
+                raise OSError("Could not persist the remote note.")
         self.items.refresh(self.records)
         self.refresh_notes_state()
         return record
@@ -1140,9 +1158,8 @@ class Assistant(QObject):
         self._meeting_capture_warnings = []
         self.history = HistoryDashboard()
         self.companion = CompanionController(self)
-        companion_button = QPushButton("Android companion")
-        companion_button.clicked.connect(self.companion.show)
-        self.history.data_panel.widget().layout().insertWidget(0, companion_button)
+        self.history.companion_requested.connect(self.companion.show)
+        self.history.home.companion.connect(self.companion.show)
         self.speaker_mute = SpeakerMute(on_error=self.speaker_mute_error.emit)
         self.speaker_mute_error.connect(lambda message: self.history.desktop_status.setText(message))
         self.history.mute_while_speaking_toggle.toggled.connect(self.change_recording_mute)

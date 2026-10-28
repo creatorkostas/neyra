@@ -42,7 +42,7 @@ The early [Android companion](https://github.com/creatorkostas/neyra-android)
 can discover this computer, save spoken or typed notes, and sync reminders on
 the same local network. Install optional dependencies with
 `uv sync --locked --extra companion`, then open **Android companion** in the
-tray or under **Voice settings → Data & backup**. The service is opt-in and
+tray, Home, or **Voice settings**. The service is opt-in and
 uses encrypted connections with explicit phone pairing.
 See [companion setup and limitations](docs/android-companion.md).
 

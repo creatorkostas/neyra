@@ -33,6 +33,7 @@ include = ["neyra*"]
 build = ["nuitka>=2.6", "ordered-set>=4.1", "zstandard>=0.23"]
 companion = [
     "cryptography>=44",
+    "qrcode[pil]>=8,<9",
     "zeroconf>=0.148,<1",
 ]
 

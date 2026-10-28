@@ -30,7 +30,7 @@ excludes raw note bodies, selected text, screenshots, and executable paths. Inte
 
 | Area | Files | Responsibility |
 | --- | --- | --- |
-| LAN companion | `companion.py`, `companion_ui.py` | Opt-in pinned TLS/DNS-SD transport, per-phone credentials, and Qt-thread request dispatch |
+| LAN companion | `companion.py`, `companion_ui.py`, `companion_jobs.py` | Opt-in pinned TLS/DNS-SD transport, per-phone credentials, and Qt-thread request dispatch |
 | App lifecycle | `main.py`, `ui.py` | Recording modes, dashboard, overlay, tray, and shutdown |
 | Speech | `speech.py`, `reply_stream.py`, `audio.py`, `stt.py`, `bundled.py`, `voz.py` | Microphone capture, speech workers, bundled models, and the Python/ONNX Voz engine |
 | Desktop integration | `hotkeys.py`, `shortcuts.py`, `desktop.py`, `speaker_mute.py`, `startup.py` | Validated shortcut preferences and global key events, clipboard/paste, and supported login startup entries |
@@ -102,3 +102,9 @@ The optional Android companion is an opt-in LAN service. HTTP workers never read
 or mutate QSettings or UI state; a bounded queue is drained on the Qt thread.
 Remote commands use a local allowlist and cannot request screen/clipboard context.
 See [Android companion](android-companion.md) for setup and current limits.
+
+Companion audio and conversation requests use cancellable, bounded asynchronous
+jobs. Remote inference guards desktop recording state; provider replies remain
+text and cannot dispatch tools. Notes use stable hashed request metadata and a
+bounded receipt journal for reconnect retries. ReminderStore owns fixed-interval
+recurrence and series cancellation; phone notifications never create successors.

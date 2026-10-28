@@ -14,6 +14,7 @@ class ControllerTests(unittest.TestCase):
             _reminders_in_flight=set())
         self.owner.history.save_history_toggle.isChecked.return_value = True
         self.controller = SimpleNamespace(owner=self.owner, server=SimpleNamespace(machine_id='pc', name='test'))
+        self.controller.notes = lambda: CompanionController.notes(self.controller)
         self.controller.snapshot = lambda: CompanionController.snapshot(self.controller)
 
     def handle(self, path, body):

@@ -1,8 +1,12 @@
 """Qt adapter for the opt-in companion; only this module touches desktop state."""
 import queue
+import hashlib
+import json
+import io
 import threading
 from pathlib import Path
-from PySide6.QtCore import QObject, QStandardPaths, QTimer
+from PySide6.QtCore import QObject, QStandardPaths, QTimer, Qt
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QPlainTextEdit
 from .companion import CompanionServer
 
@@ -17,6 +21,7 @@ class CompanionController(QObject):
         self.timer.setInterval(50)
         self.timer.timeout.connect(self.drain)
         self.dialog = None
+        self.jobs = None
 
     def dispatch(self, path, body):
         event = threading.Event()
@@ -49,11 +54,34 @@ class CompanionController(QObject):
 
     def snapshot(self):
         return {'machineId': self.server.machine_id, 'name': self.server.name,
-                'reminders': [dict(record) for record in self.owner.reminder_store.records]}
+                'reminders': [dict(record) for record in self.owner.reminder_store.records],
+                'notes': self.notes()}
+
+    def notes(self):
+        notes, size = [], 0
+        records = list(getattr(self.owner.history, 'records', [])) + list(getattr(self.owner.history, 'meeting_records', []))
+        for record in sorted(records, key=lambda r: r.get('time', ''), reverse=True)[:200]:
+            text = record.get('text', '')[:8000]
+            note = {'id': hashlib.sha256((record.get('time', '') + text).encode()).hexdigest(),
+                    'text': text, 'time': record.get('time', ''), 'title': record.get('title', '')}
+            size += len(json.dumps(note, ensure_ascii=False).encode())
+            if size > 800_000:
+                break
+            notes.append(note)
+        return notes
 
     def handle(self, path, body):
         if self.owner.closing or self.server is None:
             raise ValueError('Neyra is closing.')
+        if path in ('/v1/transcribe', '/v1/chat', '/v1/job', '/v1/forget'):
+            if self.jobs is None:
+                from .companion_jobs import CompanionJobs
+                self.jobs = CompanionJobs(self.owner)
+            if path == '/v1/job':
+                return self.jobs.status(body)
+            if path == '/v1/forget':
+                return self.jobs.forget(body.get('_peer', ''))
+            return self.jobs.create('transcribe' if path == '/v1/transcribe' else 'chat', body)
         if path == '/v1/snapshot':
             return self.snapshot()
         if path == '/v1/capture':
@@ -61,14 +89,23 @@ class CompanionController(QObject):
             if not isinstance(text, str) or not 1 <= len(text.strip()) <= 8000:
                 raise ValueError('Enter between 1 and 8,000 characters.')
             mode = body.get('mode')
+            remote_key = hashlib.sha256((body.get('_peer', '') + ':' + body['requestId']).encode()).hexdigest() if body.get('requestId') else None
             if mode == 'NOTE':
                 if not self.owner.history.save_history_toggle.isChecked():
                     raise ValueError('Enable desktop note history before saving a remote note.')
-                self.owner.history.add_transcript(text.strip())
+                if remote_key:
+                    self.owner.history.add_transcript(text.strip(), remote_key=remote_key)
+                else:
+                    self.owner.history.add_transcript(text.strip())
                 return {'message': 'Note saved on this computer.'}
             if mode == 'REMINDER':
-                if not self.owner.submit_reminder(text.strip()):
-                    raise ValueError(self.owner.history.reminders.status.text())
+                repeat = body.get('repeatSeconds', 0)
+                if repeat not in (0, 86400, 604800) or isinstance(repeat, bool):
+                    raise ValueError('Choose once, daily, or weekly.')
+                record = self.owner.reminder_store.add(text.strip(), source_key='companion:' + remote_key if remote_key else None)
+                self.owner.reminder_store.set_repeat(record['id'], repeat)
+                self.owner.history.reminders.refresh(self.owner.reminder_store.records)
+                self.owner.check_reminders()
                 return {'message': 'Reminder saved. Refresh Inbox to sync it.'}
             if mode == 'ASSISTANT':
                 # Remote requests may run bounded local commands, but never
@@ -88,6 +125,8 @@ class CompanionController(QObject):
                 raise ValueError('Reminder changed. Refresh before trying again.')
             if body.get('action') == 'done':
                 self.owner.reminder_store.complete(record['id'])
+            elif body.get('action') == 'stop_repeat':
+                self.owner.reminder_store.stop_repeating(record['id'])
             elif body.get('action') == 'snooze':
                 from .reminders import snooze_deadline
                 self.owner.reminder_store.snooze(record['id'], snooze_deadline('10min'))
@@ -105,11 +144,14 @@ class CompanionController(QObject):
             return
         self.dialog = QDialog(self.owner.history)
         self.dialog.setWindowTitle('Android companion')
-        self.dialog.resize(650, 460)
+        self.dialog.resize(760, 800)
         layout = QVBoxLayout(self.dialog)
         status = QLabel('Connect your Android phone on the same trusted local network.\nEnable starts an encrypted LAN service until Neyra quits. Ports are chosen automatically.')
         status.setWordWrap(True)
         layout.addWidget(status)
+        qr = QLabel("Enable companion to generate a five-minute pairing QR code.")
+        qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(qr)
         details = QPlainTextEdit()
         details.setReadOnly(True)
         layout.addWidget(details)
@@ -142,7 +184,15 @@ class CompanionController(QObject):
             poll.start()
 
         def display(server, token):
-            status.setText('Companion enabled. On the phone, select this computer and copy these pairing details. Keep the phone token private.')
+            import qrcode
+            invite = server.new_invite()
+            payload = json.dumps({'type': 'neyra-pair-v1', 'id': server.machine_id, 'name': server.name,
+                                  'host': server.addresses[0], 'port': server.port,
+                                  'fingerprint': server.fingerprint, 'invite': invite}, separators=(',', ':'))
+            output = io.BytesIO()
+            qrcode.make(payload).save(output, format='PNG')
+            qr.setPixmap(QPixmap.fromImage(QImage.fromData(output.getvalue())).scaled(340, 340, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation))
+            status.setText('Companion enabled. On the phone, choose Scan QR in Computers. This QR works once and expires in five minutes. Manual pairing details are below; keep tokens private.')
             details.setPlainText(f'Computer: {server.name}\nMachine ID: {server.machine_id}\nPort: {server.port}\n\nCertificate fingerprint:\n{server.fingerprint}\n\nPhone token:\n{token}')
 
         def finish():
@@ -170,6 +220,10 @@ class CompanionController(QObject):
                     server.close()
                 threading.Thread(target=worker, daemon=True).start()
             details.clear()
+            qr.clear()
+            if self.jobs:
+                self.jobs.close()
+                self.jobs = None
             status.setText('Companion stopped. All phone credentials have been revoked.')
 
         poll = QTimer(self.dialog)
@@ -180,6 +234,8 @@ class CompanionController(QObject):
         self.dialog.show()
 
     def close(self):
+        if self.jobs:
+            self.jobs.close()
         self.timer.stop()
         while not self.requests.empty():
             try:

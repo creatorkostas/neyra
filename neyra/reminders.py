@@ -164,7 +164,12 @@ class ReminderStore:
             seen.add(identifier)
             self.records.append({"id": identifier, "text": text, "due_at": due_at,
                                  "created_at": created_at, "status": status})
-            if isinstance(record.get("source_key"), str) and re.fullmatch(r"meeting:[0-9a-f]{64}", record["source_key"]):
+            if record.get("repeat_seconds") in (86400, 604800):
+                self.records[-1]["repeat_seconds"] = record["repeat_seconds"]
+                self.records[-1]["repeat_spawned"] = record.get("repeat_spawned") is True
+                series = record.get("repeat_series", identifier)
+                self.records[-1]["repeat_series"] = series if isinstance(series, str) and re.fullmatch(r"[0-9a-f]{32}", series) else identifier
+            if isinstance(record.get("source_key"), str) and re.fullmatch(r"(?:meeting|companion):[0-9a-f]{64}", record["source_key"]):
                 self.records[-1]["source_key"] = record["source_key"]
         self._trim()
 
@@ -182,10 +187,10 @@ class ReminderStore:
         if callable(sync):
             sync()
 
-    def add(self, command, now=None):
+    def add(self, command, now=None, source_key=None):
         current = time.time() if now is None else now
         text, due_at = parse_reminder(command, current)
-        return self.add_at(text, due_at, now=current)
+        return self.add_at(text, due_at, now=current, source_key=source_key)
 
     def add_at(self, text, due_at, now=None, source_key=None):
         current = time.time() if now is None else now
@@ -194,7 +199,7 @@ class ReminderStore:
         if not _timestamp(current) or not _timestamp(due_at) or due_at <= current:
             raise ValueError("Choose a reminder time in the future.")
         if source_key is not None:
-            if not isinstance(source_key, str) or not re.fullmatch(r"meeting:[0-9a-f]{64}", source_key):
+            if not isinstance(source_key, str) or not re.fullmatch(r"(?:meeting|companion):[0-9a-f]{64}", source_key):
                 raise ValueError("Invalid reminder source.")
             existing = next((record for record in self.records if record.get("source_key") == source_key), None)
             if existing:
@@ -207,6 +212,45 @@ class ReminderStore:
         self.records.append(record)
         self._save()
         return record
+
+    def set_repeat(self, identity, seconds):
+        if seconds not in (0, 86400, 604800) or isinstance(seconds, bool):
+            raise ValueError('Choose once, daily, or weekly.')
+        for record in self.records:
+            if record['id'] == identity and record['status'] == 'pending':
+                if seconds:
+                    record['repeat_seconds'] = seconds
+                    record.setdefault('repeat_series', record['id'])
+                    record.setdefault('repeat_spawned', False)
+                else:
+                    record.pop('repeat_seconds', None)
+                self._save()
+                return
+
+    def stop_repeating(self, identity):
+        selected = next((r for r in self.records if r['id'] == identity), None)
+        if not selected:
+            return
+        series = selected.get('repeat_series', identity)
+        self.records[:] = [r for r in self.records if r['id'] == identity or r.get('repeat_series') != series or r['status'] != 'pending']
+        for record in self.records:
+            if record.get('repeat_series') == series:
+                record.pop('repeat_seconds', None)
+                record.pop('repeat_series', None)
+                record.pop('repeat_spawned', None)
+        self._save()
+
+    def _next_occurrence(self, record):
+        interval = record.get('repeat_seconds', 0)
+        if interval not in (86400, 604800) or record.get('repeat_spawned'):
+            return
+        current = time.time()
+        steps = max(1, math.floor((current - record['due_at']) / interval) + 1)
+        following = {'id': uuid.uuid4().hex, 'text': record['text'],
+                     'due_at': record['due_at'] + steps * interval,
+                     'created_at': current, 'status': 'pending', 'repeat_seconds': interval, 'repeat_spawned': False, 'repeat_series': record.get('repeat_series', record['id'])}
+        record['repeat_spawned'] = True
+        self.records.append(following)
 
     def snooze(self, identity, due_at, now=None):
         """Requeue a pending or delivered reminder without changing its identity."""
@@ -228,6 +272,7 @@ class ReminderStore:
         for record in self.records:
             if record["id"] == identity and record["status"] != "done":
                 record["status"] = "done"
+                self._next_occurrence(record)
                 self._save()
                 return True
         return False
@@ -253,9 +298,10 @@ class ReminderStore:
         """Acknowledge delivered reminders; cancelled records remain absent."""
         identifiers = set(record_ids)
         changed = []
-        for record in self.records:
+        for record in list(self.records):
             if record["status"] == "pending" and record["id"] in identifiers:
                 record["status"] = "fired"
+                self._next_occurrence(record)
                 changed.append(record)
         if changed:
             self._save()
