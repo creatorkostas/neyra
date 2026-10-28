@@ -1,6 +1,6 @@
 # Neyra — Your personal voice workspace
 
-A local dictation dashboard and floating recording overlay for Windows 10/11, Linux, and Apple silicon Macs. Cactus Whistle recognizes English and streams live previews about once per second. Desert Ant Voz supports 25 languages and produces its transcript after recording stops. Both engines run on your CPU. X11 has the best Linux shortcut support; see the Wayland limitations below.
+A local dictation dashboard and floating recording overlay for Windows 10/11, Linux, and Apple silicon Macs. Cactus Whistle recognizes English and shows live text every few seconds. Desert Ant Voz supports 25 languages and produces its transcript after recording stops. Both engines run on your CPU. X11 has the best Linux shortcut support; see the Wayland limitations below.
 
 PC audio is muted while you record dictation, reminder commands, or assistant commands, and its previous mute state is restored when you stop. Disable **Mute PC audio while I speak** under **Voice settings → Microphone / models → Desktop**. Meeting recording and microphone testing keep PC audio available.
 
@@ -267,7 +267,7 @@ for development setup, PR checks, dependency updates, and the release process.
 neyra/
   main.py     # PySide6 overlay, tray, session lifecycle
   audio.py    # sounddevice microphone, 16 kHz mono float32
-  stt.py      # Whistle streaming and optional Voz transcription on background threads
+  stt.py      # Whistle live windows and optional Voz transcription on background threads
   hotkeys.py  # hold and toggle chords (Windows/X11)
   desktop.py  # best-effort cross-platform paste
   startup.py  # per-user Windows and Linux login startup entries
@@ -282,7 +282,7 @@ neyra/
 pyproject.toml
 ```
 
-The UI previews Whistle's `pending` text but only inserts committed transcription after recording ends. Voz returns its transcript after release and does not provide live previews in the JavaScript API. Its model download and transcription progress are reported by the worker. One-second audio blocks are streamed via a queue. All inference is off the GUI thread. Worker results and microphone levels reach the GUI through Qt signals. Audio streams are closed on failure and shutdown. Auto-paste waits for the shortcut modifiers to be released. There is no wake word, silence detection, or automatic timeout.
+Whistle transcribes audio in windows of at most 5.12 seconds and shows their text as it commits, but only inserts committed transcription after recording ends. The native encoder is about seven times slower per second of audio past that window, and the streaming call re-encodes the audio it keeps on every pass, so windowing keeps a long dictation faster than real time; a window also ends inside a sustained pause so a cut rarely splits a word. Voz returns its transcript after release and does not provide live previews in the JavaScript API. Its model download and transcription progress are reported by the worker. Quarter-second audio blocks are streamed via a queue. All inference is off the GUI thread. Worker results and microphone levels reach the GUI through Qt signals. Audio streams are closed on failure and shutdown. Auto-paste waits for the shortcut modifiers to be released. There is no wake word, no automatic stop on silence, and no timeout.
 
 ## Regression checks
 

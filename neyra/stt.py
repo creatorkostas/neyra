@@ -1,4 +1,4 @@
-"""Whistle streaming and optional Voz inference workers."""
+"""Whistle live and optional Voz inference workers."""
 import queue
 import tempfile
 import threading
@@ -10,7 +10,46 @@ from .meeting import MeetingModels, validated_words, label_words, suggested_titl
 
 LANGUAGE = "en"
 SAMPLE_RATE = 16_000
-UPDATE_SECONDS = 1
+FRAME_SAMPLES = round(.02 * SAMPLE_RATE)
+# libneedle's encoder has a fast path up to 64 frames (5.12 s); past that it is
+# about seven times slower per second of audio, so transcription windows stop there.
+WINDOW_SECONDS = 5.12
+WINDOW_MIN_SECONDS = 2.5
+WINDOW_SEARCH_SECONDS = 3.0
+WINDOW_SAMPLES = round(WINDOW_SECONDS * SAMPLE_RATE)
+WINDOW_MIN_SAMPLES = round(WINDOW_MIN_SECONDS * SAMPLE_RATE)
+# A sustained gap this far below the typical speech frame is a pause between
+# words; single quiet frames are usually a fricative inside a word.
+PAUSE_RATIO = 10 ** (-12 / 10)
+PAUSE_FRAMES = 3  # 60 ms
+SILENCE = 1e-5  # mean square below this is room noise, which the model may hallucinate on
+
+
+def window_end(samples):
+    """Index to end the next Whistle window at, or None to keep listening.
+
+    A window never grows past WINDOW_SAMPLES. It ends early in the middle of a
+    pause, so a cut rarely splits a word, and else exactly at the cap, which
+    keeps every encoder run on its fast path.
+    """
+    if len(samples) < WINDOW_MIN_SAMPLES:
+        return None
+    limit = min(len(samples), WINDOW_SAMPLES)
+    begin = max(WINDOW_MIN_SAMPLES, limit - round(WINDOW_SEARCH_SECONDS * SAMPLE_RATE))
+    begin -= begin % FRAME_SAMPLES
+    block = samples[begin:begin + (limit - begin) // FRAME_SAMPLES * FRAME_SAMPLES]
+    if not len(block):
+        return limit if len(samples) >= WINDOW_SAMPLES else None
+    energy = np.mean(block.reshape(-1, FRAME_SAMPLES) ** 2, axis=1)
+    quiet = energy <= np.percentile(energy, 75) * PAUSE_RATIO
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], quiet.astype(np.int8), [0]))))
+    pauses = [(start, stop) for start, stop in zip(edges[::2], edges[1::2]) if stop - start >= PAUSE_FRAMES]
+    if pauses:
+        # The quietest pause wins, later ones on a tie for more speech per window.
+        start, stop = min(pauses, key=lambda pause: (float(energy[pause[0]:pause[1]].mean()), -pause[0]))
+        return int(begin + ((start + stop) // 2) * FRAME_SAMPLES + FRAME_SAMPLES // 2)
+    return limit if len(samples) >= WINDOW_SAMPLES else None
+
 
 class Transcriber(QObject):
     partial = Signal(str)
@@ -119,32 +158,7 @@ class Transcriber(QObject):
                     result = self._run_voz(chunks, meeting_options=meeting_options)
                 else:
                     self._wait_for_whistle()
-                    import needle
-                    committed = []
-                    def update_chunks():
-                        pending = []
-                        sample_count = 0
-                        while True:
-                            item = chunks.get()
-                            if item is None:
-                                break
-                            pending.append(item)
-                            sample_count += len(item)
-                            if sample_count >= SAMPLE_RATE * UPDATE_SECONDS:
-                                yield np.concatenate(pending)
-                                pending = []
-                                sample_count = 0
-                        if pending:
-                            yield np.concatenate(pending)
-
-                    pending_text = ""
-                    for step in needle.stream(update_chunks(), language=LANGUAGE, keywords=keywords):
-                        fragment = str(step.get("text") or "").strip()
-                        if fragment:
-                            committed.append(fragment)
-                        pending_text = str(step.get("pending") or "").strip()
-                        self.partial.emit(" ".join([*committed, pending_text]).strip())
-                    result = " ".join(committed).strip()
+                    result = self._run_whistle(chunks, keywords)
             except Exception as exc:
                 failure = f"{type(exc).__name__}: {exc}"
             finally:
@@ -162,6 +176,42 @@ class Transcriber(QObject):
         self._worker_done.clear()
         self.thread = threading.Thread(target=worker, name=worker_name, daemon=True)
         self.thread.start()
+
+    def _run_whistle(self, chunks, keywords=()):
+        """Transcribe the recording as soon as each window is complete.
+
+        Calling the model once per window instead of once per second of live
+        audio is what keeps a long dictation faster than real time: the native
+        streaming call re-encodes the audio it has kept on every pass.
+        """
+        import needle
+        engine = needle.Whistle()
+        committed = []
+        buffer = np.zeros(0, np.float32)
+
+        def commit(window):
+            if float(np.mean(window ** 2)) < SILENCE:
+                return
+            text = str(engine.transcribe(window, language=LANGUAGE, keywords=keywords).get("text") or "").strip()
+            if text:
+                committed.append(text)
+                self.partial.emit(" ".join(committed))
+
+        while True:
+            item = chunks.get()
+            if item is None:
+                break
+            samples = np.asarray(item, dtype=np.float32)
+            if len(samples):
+                buffer = np.concatenate((buffer, samples))
+            end = window_end(buffer)
+            while end is not None:
+                commit(buffer[:end])
+                buffer = buffer[end:]
+                end = window_end(buffer)
+        if len(buffer):
+            commit(buffer)
+        return " ".join(committed).strip()
 
     def _run_voz(self, chunks, meeting_options=None):
         audio_directory = tempfile.TemporaryDirectory(prefix="neyra-audio-")

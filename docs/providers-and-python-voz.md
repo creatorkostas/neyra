@@ -126,6 +126,33 @@ with `uv`, so the variants cannot overwrite each other. On Windows,
 display adapter, and compares CPU with WebGPU (add `-Variants cpu,webgpu,directml`
 to include DirectML). Packaged builds still need target-device verification.
 
+### Pipeline performance
+
+The GPU encoder is cheap; most of the remaining time is the autoregressive decoder
+on the CPU, which the pipeline used to run for all 16 lanes even when a clip held
+one window. Three changes removed most of that idle work. Measured on the same
+laptop with the WebGPU encoder and CPU decoder, best of three warm runs:
+
+| Audio | Before | After | Real-time factor |
+| --- | --- | --- | --- |
+| 9.6 s dictation | 0.94 s | 0.45 s | 0.10 → 0.05 |
+| 38.4 s recording | 2.03 s | 1.31 s | 0.05 → 0.03 |
+| 9.6 s, CPU-only install | 1.54 s | 0.94 s | 0.16 → 0.10 |
+
+- The decoder batch is dynamic. Upstream exports a fixed 16-lane decoder, so a
+  short dictation paid for 15 silent lanes. On first use `onnx` rewrites the
+  decoder's declared batch, the result is cached under `NEYRA_VOZ_CACHE_DIR`, and
+  decoding then uses only the windows that exist. Transcripts and word timings
+  matched the fixed-batch decoder exactly in testing.
+- Windows are encoded four at a time (`ENCODER_BATCH` in `neyra/voz.py`): 343 ms
+  per window became 267 ms, and larger batches stopped helping.
+- On a GPU build the next batch is encoded while the current one decodes, because
+  the encoder runs on the GPU and the decoder on the CPU. CPU-only installs stay
+  sequential to avoid oversubscribing their cores.
+- The relaxed decoder adds `onnx` as a dependency. If the rewrite or its cache is
+  unusable, Voz deletes it and loads the shipped decoder, so transcription still
+  works with the fixed batch.
+
 The native port is not yet proven equivalent on long or multilingual recordings.
 Upstream's advanced recovery for partially truncated windows and keyword boosting
 are not implemented. Test long recordings before relying on it for meeting notes.

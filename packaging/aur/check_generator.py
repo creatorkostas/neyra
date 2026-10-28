@@ -58,6 +58,7 @@ class GeneratorChecks(unittest.TestCase):
                 "neyra-bin/PKGBUILD", "neyra-bin/.SRCINFO", "neyra-bin/neyra",
                 "neyra-bin/neyra.desktop", "neyra-bin/neyra.svg", "neyra-bin/LICENSE",
                 "neyra-bin/Piper-COPYING.txt", "neyra-bin/ONNXRuntime-LICENSE.txt",
+                "neyra-bin/ONNX-LICENSE.txt",
             })
         with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
             prepare("1.2.3", self.archive, self.root / "out")
