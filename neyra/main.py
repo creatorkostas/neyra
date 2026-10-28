@@ -28,6 +28,7 @@ from .assistant_ui import AssistantPanel
 from .assistant_features import AssistantFeatures
 from .home_ui import HomePanel
 from .preferences_ui import ShortcutsPanel, DataPanel
+from .companion_ui import CompanionController
 from .shortcuts import load_bindings, validate_bindings, shortcut_label
 
 
@@ -155,6 +156,7 @@ class HistoryDashboard(QDialog):
     notetaker_start = Signal()
     notetaker_stop = Signal()
     closed = Signal()
+    companion_requested = Signal()
     history_cleared = Signal()
     transcript_deleted = Signal(object)
     restore_data_requested = Signal(object)
@@ -500,6 +502,10 @@ class HistoryDashboard(QDialog):
             layout.addWidget(frame)
             return box
 
+        companion = card("Android companion", "Pair your phone to capture notes, talk to Neyra, and keep reminders with you on your local network.")
+        companion_button = QPushButton("Open Android companion")
+        companion_button.clicked.connect(self.companion_requested.emit)
+        companion.addWidget(companion_button)
         from .themes import apply_theme
         appearance = card("Appearance", "Choose a light or dark workspace. Your choice is saved.")
         self.theme_button = QPushButton("Use light theme" if self.settings.value("theme", "light") == "dark" else "Use dark theme")
@@ -950,13 +956,26 @@ class HistoryDashboard(QDialog):
         self.refresh_notes_state()
         self.history_cleared.emit()
 
-    def add_transcript(self, text, duration=0):
+    def add_transcript(self, text, duration=0, remote_key=None):
         if not self.save_history_toggle.isChecked():
             return
+        if remote_key:
+            existing = next((item for item in self.records if item.get('companion_request') == remote_key), None)
+            if existing:
+                self.settings.sync()
+                if self.settings.status() != QSettings.Status.NoError:
+                    raise OSError("Could not persist the remote note.")
+                return existing
         record = {"text": text, "time": datetime.now().isoformat(timespec="seconds"), "duration": max(0, duration)}
+        if remote_key:
+            record['companion_request'] = remote_key
         self.records.append(record)
         self.records = self.records[-500:]
         self.settings.setValue("history", json.dumps(self.records))
+        if remote_key:
+            self.settings.sync()
+            if self.settings.status() != QSettings.Status.NoError:
+                raise OSError("Could not persist the remote note.")
         self.items.refresh(self.records)
         self.refresh_notes_state()
         return record
@@ -1138,6 +1157,9 @@ class Assistant(QObject):
         self._meeting_audio = None
         self._meeting_capture_warnings = []
         self.history = HistoryDashboard()
+        self.companion = CompanionController(self)
+        self.history.companion_requested.connect(self.companion.show)
+        self.history.home.companion.connect(self.companion.show)
         self.speaker_mute = SpeakerMute(on_error=self.speaker_mute_error.emit)
         self.speaker_mute_error.connect(lambda message: self.history.desktop_status.setText(message))
         self.history.mute_while_speaking_toggle.toggled.connect(self.change_recording_mute)
@@ -1177,7 +1199,7 @@ class Assistant(QObject):
         self.tray_status = menu.addAction("Ready to dictate")
         self.tray_status.setEnabled(False)
         menu.addSeparator()
-        for title, action in [("Start dictation", self.toggle), ("Speak a reminder", self.toggle_reminder), ("Speak a command", self.toggle_assistant), ("Assistant", self.assistant_features.show), ("Reminders", self.show_reminders), ("Stop Notetaker", self.stop_notetaker), ("Open Neyra", self.show_history), ("Copy last transcript", self.copy_last), ("Settings", self.show_settings), ("Quit Neyra", self.quit)]:
+        for title, action in [("Start dictation", self.toggle), ("Speak a reminder", self.toggle_reminder), ("Speak a command", self.toggle_assistant), ("Assistant", self.assistant_features.show), ("Reminders", self.show_reminders), ("Stop Notetaker", self.stop_notetaker), ("Android companion", self.companion.show), ("Open Neyra", self.show_history), ("Copy last transcript", self.copy_last), ("Settings", self.show_settings), ("Quit Neyra", self.quit)]:
             item = QAction(title, menu)
             item.triggered.connect(action)
             menu.addAction(item)
@@ -1672,6 +1694,10 @@ class Assistant(QObject):
 
     @Slot(str)
     def preview(self, text):
+        remote = getattr(self, '_companion_audio_owner', None)
+        if remote is not None:
+            remote.audio_partial(text)
+            return
         if self.closing or self._discard_assistant_transcript:
             return
         self.history.status_label.setText("Listening..." if self.recording else "Processing meeting..." if self.active_mode == "notetaker" else "Transcribing..." if self.processing else "Preparing model...")
@@ -1685,6 +1711,10 @@ class Assistant(QObject):
 
     @Slot(str)
     def complete(self, text):
+        remote = getattr(self, '_companion_audio_owner', None)
+        if remote is not None:
+            remote.audio_finished(text)
+            return
         if self.closing:
             return
         self.processing = False
@@ -1853,6 +1883,10 @@ class Assistant(QObject):
 
     @Slot(str)
     def error(self, message):
+        remote = getattr(self, '_companion_audio_owner', None)
+        if remote is not None:
+            remote.audio_failed(message)
+            return
         if self.closing:
             return
         self.speaker_mute.end()
@@ -1914,6 +1948,7 @@ class Assistant(QObject):
             return
         self.closing = True
         self.assistant_overlay_timer.stop()
+        self.companion.close()
         self.assistant_features.cleanup()
         self.reminder_timer.stop()
         self.feedback_timer.stop()

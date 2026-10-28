@@ -10,6 +10,7 @@ class HomePanel(QScrollArea):
     remind = Signal()
     meeting = Signal()
     ask_notes = Signal()
+    companion = Signal()
 
     def __init__(self, capture):
         super().__init__()
@@ -27,7 +28,7 @@ class HomePanel(QScrollArea):
         box.addWidget(capture)
         actions = QHBoxLayout()
         for title, signal in (("Speak a reminder", self.remind), ("Ask my notes", self.ask_notes),
-                              ("Start a meeting", self.meeting)):
+                              ("Start a meeting", self.meeting), ("Android companion", self.companion)):
             button = QPushButton(title)
             button.clicked.connect(signal.emit)
             actions.addWidget(button)

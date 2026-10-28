@@ -36,6 +36,16 @@ In **Voice settings**, choose **Whistle** for live text or **Voz** for a final t
 
 The Home capture bar shows model loading and transcription status. Voz uses Python and ONNX Runtime, runs the encoder on the GPU through WebGPU (or CoreML on macOS), and needs no Node.js installation. Model weights download on first use. See [providers and Python Voz](docs/providers-and-python-voz.md) for setup, measured results, and current validation limits.
 
+## Android companion
+
+The early [Android companion](https://github.com/creatorkostas/neyra-android)
+can discover this computer, save spoken or typed notes, and sync reminders on
+the same local network. Install optional dependencies with
+`uv sync --locked --extra companion`, then open **Android companion** in the
+tray, Home, or **Voice settings**. The service is opt-in and
+uses encrypted connections with explicit phone pairing.
+See [companion setup and limitations](docs/android-companion.md).
+
 ## Set up dictation
 
 1. Open **Voice settings → Microphone** and select an input, or use **System default**. The same choice applies to Notetaker.
