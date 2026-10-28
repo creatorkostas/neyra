@@ -1,5 +1,6 @@
 """Opt-in TLS LAN transport. Domain operations are marshalled by companion_ui."""
 from collections import OrderedDict
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -186,14 +187,25 @@ class CompanionServer:
         self.zeroconf = None
         self.service = None
 
+    @contextmanager
+    def _receipts(self):
+        """Short-lived receipts connection that also closes over the file.
+
+        sqlite3's own context manager commits the transaction but leaves the
+        connection open until garbage collection, and Windows refuses to delete
+        or move the file while a handle is open. Close it with the transaction.
+        """
+        with closing(sqlite3.connect(self.directory / 'receipts.sqlite')) as db, db:
+            yield db
+
     def receipt(self, auth, request_id):
-        with sqlite3.connect(self.directory / 'receipts.sqlite') as db:
+        with self._receipts() as db:
             db.execute('CREATE TABLE IF NOT EXISTS receipts (peer TEXT, request TEXT, payload TEXT, result TEXT, created REAL, PRIMARY KEY(peer, request))')
             row = db.execute('SELECT payload, result FROM receipts WHERE peer=? AND request=?', (hashlib.sha256(auth.encode()).hexdigest(), request_id)).fetchone()
             return (row[0], json.loads(row[1])) if row else None
 
     def save_receipt(self, auth, request_id, payload, result):
-        with sqlite3.connect(self.directory / 'receipts.sqlite') as db:
+        with self._receipts() as db:
             db.execute('INSERT OR REPLACE INTO receipts VALUES (?, ?, ?, ?, ?)', (hashlib.sha256(auth.encode()).hexdigest(), request_id, payload, json.dumps(result), time.time()))
             db.execute('DELETE FROM receipts WHERE rowid NOT IN (SELECT rowid FROM receipts ORDER BY created DESC LIMIT 2000)')
 
