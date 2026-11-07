@@ -18,8 +18,8 @@ dependencies = [
     "PyJWT[crypto]>=2.10,<3",
     "piper-tts>=1.8,<2",
     "onnxruntime-webgpu>=1.27,<2; (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'win32' and platform_machine == 'AMD64')",
-    "onnxruntime>=1.23,<2; sys_platform == 'darwin' or (sys_platform == 'linux' and platform_machine != 'x86_64') or (sys_platform == 'win32' and platform_machine != 'AMD64')",
-    "huggingface-hub>=1,<3",
+    "onnxruntime>=1.31.1,<2; sys_platform == 'darwin' or (sys_platform == 'linux' and platform_machine != 'x86_64') or (sys_platform == 'win32' and platform_machine != 'AMD64')",
+    "huggingface-hub>=2.4.0,<3",
     "onnx>=1.17,<2",
 ]
 
@@ -30,7 +30,7 @@ neyra = "neyra.main:main"
 include = ["neyra*"]
 
 [project.optional-dependencies]
-build = ["nuitka>=2.6", "ordered-set>=4.1", "zstandard>=0.23"]
+build = ["nuitka>=4.3.4", "ordered-set>=4.1", "zstandard>=0.23"]
 
 [tool.uv]
 package = true
@@ -40,5 +40,5 @@ select = ["E9", "F63", "F7", "F82"]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.14,<1",
+    "ruff>=0.17.3,<1",
 ]
