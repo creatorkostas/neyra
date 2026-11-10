@@ -29,6 +29,7 @@ from .assistant_features import AssistantFeatures
 from .home_ui import HomePanel
 from .preferences_ui import ShortcutsPanel, DataPanel
 from .shortcuts import load_bindings, validate_bindings, shortcut_label
+from .update import UpdateCheckThread, UpdateDownloadThread, apply_staged_update, is_packaged
 
 
 def load_setting(settings, key, expected, default):
@@ -1102,6 +1103,7 @@ class Assistant(QObject):
         super().__init__()
         self.app = app
         self.closing = False
+        self._update_worker = None
         self.recording_duration = 0
         self.recording_started = 0
         self._pending_paste = ""
@@ -1177,7 +1179,7 @@ class Assistant(QObject):
         self.tray_status = menu.addAction("Ready to dictate")
         self.tray_status.setEnabled(False)
         menu.addSeparator()
-        for title, action in [("Start dictation", self.toggle), ("Speak a reminder", self.toggle_reminder), ("Speak a command", self.toggle_assistant), ("Assistant", self.assistant_features.show), ("Reminders", self.show_reminders), ("Stop Notetaker", self.stop_notetaker), ("Open Neyra", self.show_history), ("Copy last transcript", self.copy_last), ("Settings", self.show_settings), ("Quit Neyra", self.quit)]:
+        for title, action in [("Start dictation", self.toggle), ("Speak a reminder", self.toggle_reminder), ("Speak a command", self.toggle_assistant), ("Assistant", self.assistant_features.show), ("Reminders", self.show_reminders), ("Stop Notetaker", self.stop_notetaker), ("Open Neyra", self.show_history), ("Copy last transcript", self.copy_last), ("Settings", self.show_settings), ("Check for updates (.update)", lambda: self.check_for_updates(manual=True)), ("Quit Neyra", self.quit)]:
             item = QAction(title, menu)
             item.triggered.connect(action)
             menu.addAction(item)
@@ -1227,6 +1229,71 @@ class Assistant(QObject):
         self.update_controls()
         self.reminder_timer.start()
         QTimer.singleShot(0, self.check_reminders)
+        if is_packaged():
+            QTimer.singleShot(8000, lambda: self.check_for_updates(manual=False))
+
+    def check_for_updates(self, manual=False):
+        if not is_packaged():
+            if manual:
+                QMessageBox.information(self.history, "Neyra updates",
+                                        "Automatic updates are available in packaged Neyra releases.")
+            return
+        if self._update_worker is not None and self._update_worker.isRunning():
+            return
+        worker = self._update_worker = UpdateCheckThread(self)
+        worker.completed.connect(lambda release: self._update_check_complete(release, manual))
+        worker.failed.connect(lambda message: self._update_check_failed(message, manual))
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _update_check_failed(self, message, manual):
+        self._update_worker = None
+        if manual:
+            QMessageBox.warning(self.history, "Neyra updates", f"Could not check for updates.\\n\\n{message}")
+
+    def _update_check_complete(self, release, manual):
+        self._update_worker = None
+        if not release.get("available"):
+            if manual:
+                QMessageBox.information(self.history, "Neyra updates",
+                                        f"Neyra {release.get('current')} is the latest stable release.")
+            return
+        notes = release.get("notes", "").strip()
+        summary = notes[:1200] + ("…" if len(notes) > 1200 else "")
+        prompt = f"Neyra {release['latest']} is available (installed: {release['current']}).\\n\\nDownload and install this stable release?"
+        if summary:
+            prompt += f"\\n\\nRelease notes:\\n{summary}"
+        answer = QMessageBox.question(self.history, "Neyra update available", prompt,
+                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                      QMessageBox.StandardButton.Yes)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        worker = self._update_worker = UpdateDownloadThread(release, self)
+        worker.completed.connect(self._update_download_complete)
+        worker.failed.connect(self._update_download_failed)
+        worker.finished.connect(worker.deleteLater)
+        self.tray.showMessage("Neyra update", f"Downloading version {release['latest']}…")
+        worker.start()
+
+    def _update_download_failed(self, message):
+        self._update_worker = None
+        QMessageBox.warning(self.history, "Neyra update failed", message)
+
+    def _update_download_complete(self, staged_path):
+        self._update_worker = None
+        try:
+            apply_staged_update(staged_path)
+        except Exception as exc:
+            QMessageBox.warning(self.history, "Neyra update failed", str(exc))
+            return
+        answer = QMessageBox.question(
+            self.history, "Update ready",
+            "The verified update is staged. Restart Neyra now to finish installing it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.app.quit()
 
     def prepare_selected_engine(self, *_):
         if self.history.engine_choice.currentData() == "whistle":
