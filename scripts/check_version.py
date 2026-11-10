@@ -8,7 +8,7 @@ root = Path(__file__).resolve().parent.parent
 project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
 project_version = project["project"]["version"]
 source = (root / "neyra" / "version.py").read_text(encoding="utf-8")
-match = re.search(r'^__version__\\s*=\\s*["\']([^"\']+)["\']', source, re.MULTILINE)
+match = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', source, re.MULTILINE)
 if not match:
     raise SystemExit("Could not read neyra/version.py __version__.")
 if match.group(1) != project_version:
