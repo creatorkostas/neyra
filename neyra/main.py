@@ -1249,7 +1249,7 @@ class Assistant(QObject):
     def _update_check_failed(self, message, manual):
         self._update_worker = None
         if manual:
-            QMessageBox.warning(self.history, "Neyra updates", f"Could not check for updates.\\n\\n{message}")
+            QMessageBox.warning(self.history, "Neyra updates", f"Could not check for updates.\n\n{message}")
 
     def _update_check_complete(self, release, manual):
         self._update_worker = None
@@ -1260,9 +1260,9 @@ class Assistant(QObject):
             return
         notes = release.get("notes", "").strip()
         summary = notes[:1200] + ("…" if len(notes) > 1200 else "")
-        prompt = f"Neyra {release['latest']} is available (installed: {release['current']}).\\n\\nDownload and install this stable release?"
+        prompt = f"Neyra {release['latest']} is available (installed: {release['current']}).\n\nDownload and install this stable release?"
         if summary:
-            prompt += f"\\n\\nRelease notes:\\n{summary}"
+            prompt += f"\n\nRelease notes:\n{summary}"
         answer = QMessageBox.question(self.history, "Neyra update available", prompt,
                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                       QMessageBox.StandardButton.Yes)
