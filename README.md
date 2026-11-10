@@ -197,6 +197,20 @@ Windows and Linux release packages use `--onefile`.
 
 **Packaging caveat:** Cactus's fetched engine layout may change, and some distributions may contain multiple libraries. The build deliberately fails instead of silently falling back to online downloads. If `NEEDLE3_LIB_PATH` is ignored by a future Cactus release or native dependencies are missing, verify against that release and adjust the packaging.
 
+## App updates
+
+Packaged Neyra builds check GitHub's latest stable release shortly after startup.
+When a newer release is available, Neyra offers to download and install the matching
+Windows, Linux, or Apple silicon macOS package. The download is verified against
+GitHub's SHA-256 asset digest, then applied when Neyra exits; choosing **Restart
+now** finishes the update immediately. Use the tray menu's **Check for updates
+(.update)** item to check manually. Source/development runs do not self-update.
+Arch installations must be updated through their package manager or AUR.
+
+The embedded application version lives in `neyra/version.py` and must match
+`pyproject.toml` and the release tag. The release workflow checks these values
+before building.
+
 ## Publish a release
 
 Push a version tag such as `v0.1.0` to build the Windows, Linux, and Apple silicon macOS packages and publish them as GitHub release assets. The workflow also builds all three on pushes to `main`.
