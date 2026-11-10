@@ -151,7 +151,8 @@ def _extract_update(archive: Path, stage: Path, name: str) -> Path:
         with zipfile.ZipFile(archive) as bundle:
             for info in bundle.infolist():
                 parts = Path(info.filename).parts
-                if not parts or parts[0] != "Neyra.app" or ".." in parts:
+                if (not parts or parts[0] not in ("Neyra.app", "__MACOSX")
+                        or ".." in parts or info.filename.startswith("/")):
                     raise ValueError("The macOS update archive has an unexpected layout.")
         subprocess.run(["ditto", "-x", "-k", str(archive), str(stage)], check=True, timeout=180)
         result = stage / "Neyra.app"
